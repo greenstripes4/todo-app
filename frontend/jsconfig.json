@@ -1,8 +1,14 @@
 {
   "compilerOptions": {
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
-    }
+      "@/*": ["./src/*"],
+      "@components/*": ["./src/components/*"],
+      "@features/*": ["./src/features/*"],
+      "@auth/*": ["./src/features/auth/*"],
+      "@dashboard/*": ["./src/features/dashboard/*"]
+    },
+    "lib": ["ESNext", "DOM"]
   },
   "exclude": ["node_modules", "dist"]
 }
