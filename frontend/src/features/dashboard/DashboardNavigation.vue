@@ -5,7 +5,7 @@
       <NavigationItem label="Your Workflows" />
     </NavigationGroup>
     <NavigationGroup v-if="isAdmin" title="Administration" :is-open="true">
-      <NavigationItem label="Manage Users" />
+      <NavigationItem label="Manage Users" @click="$emit('show-manage-users')" />
       <NavigationItem label="Manage Workflows" />
     </NavigationGroup>
     <NavigationGroup title="Account" :is-open="true">
@@ -21,7 +21,7 @@ import NavigationItem from './NavigationItem.vue';
 import { ref, onMounted } from 'vue';
 import { jwtDecode } from 'jwt-decode';
 
-defineEmits(['logout', 'show-profile']);
+defineEmits(['logout', 'show-profile', 'show-manage-users']);
 
 const isAdmin = ref(false);
 

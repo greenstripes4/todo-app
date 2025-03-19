@@ -1,14 +1,15 @@
-<!-- /config/workspace/todo-app/frontend/src/features/dashboard/Dashboard.vue -->
 <template>
   <div class="dashboard">
     <DashboardNavigation
       class="dashboard-navigation"
       @logout="$emit('logout')"
       @show-profile="showProfile = true"
+      @show-manage-users="showManageUsers = true"
     />
     <div class="dashboard-content">
       <ProfileView v-if="showProfile" />
-      <template v-else>
+      <ManageUsersView v-if="showManageUsers" />
+      <template v-else-if="!showProfile">
         <h1>Welcome!</h1>
         <p>This is your dashboard.</p>
         <!-- You can add more dashboard content here -->
@@ -20,11 +21,13 @@
 <script setup>
 import DashboardNavigation from './DashboardNavigation.vue';
 import ProfileView from './ProfileView.vue';
+import ManageUsersView from './ManageUsersView.vue';
 import { ref } from 'vue';
 
 defineEmits(['logout']);
 
 const showProfile = ref(false);
+const showManageUsers = ref(false);
 </script>
 
 <style scoped>
