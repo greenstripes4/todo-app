@@ -1,18 +1,30 @@
+<!-- /config/workspace/todo-app/frontend/src/features/dashboard/Dashboard.vue -->
 <template>
   <div class="dashboard">
-    <DashboardNavigation class="dashboard-navigation" @logout="$emit('logout')" />
+    <DashboardNavigation
+      class="dashboard-navigation"
+      @logout="$emit('logout')"
+      @show-profile="showProfile = true"
+    />
     <div class="dashboard-content">
-      <h1>Welcome!</h1>
-      <p>This is your dashboard.</p>
-      <!-- You can add more dashboard content here -->
+      <ProfileView v-if="showProfile" />
+      <template v-else>
+        <h1>Welcome!</h1>
+        <p>This is your dashboard.</p>
+        <!-- You can add more dashboard content here -->
+      </template>
     </div>
   </div>
 </template>
 
 <script setup>
 import DashboardNavigation from './DashboardNavigation.vue';
+import ProfileView from './ProfileView.vue';
+import { ref } from 'vue';
 
 defineEmits(['logout']);
+
+const showProfile = ref(false);
 </script>
 
 <style scoped>
@@ -25,9 +37,9 @@ defineEmits(['logout']);
 .dashboard-navigation {
   width: 200px;
   flex-shrink: 0;
-  position: fixed; /* Changed to fixed */
+  position: fixed;
   top: 0;
-  left: 0; /* Added left: 0 */
+  left: 0;
   height: 100vh;
   background-color: #333;
   color: #fff;
@@ -41,7 +53,7 @@ defineEmits(['logout']);
   padding: 20px;
   height: 100%;
   overflow-y: auto;
-  margin-left: 200px; /* Added margin-left */
+  margin-left: 200px;
 }
 
 h1 {

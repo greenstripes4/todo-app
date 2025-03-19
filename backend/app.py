@@ -1,6 +1,6 @@
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import JWTManager, create_access_token
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_cors import CORS
 import os
@@ -9,8 +9,7 @@ import os
 app = Flask(__name__)
 
 # Configure CORS to accept all domains
-#CORS(app, resources={r"/*": {"origins": "https://demo.zhaooci.duckdns.org"}})
-CORS(app)  # Removed the resources and origins, allowing all origins
+CORS(app)
 
 # Fetch database URI from environment variable
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
@@ -31,6 +30,8 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     # Password hash (non-nullable string)
     password_hash = db.Column(db.String(256), nullable=False)
+    # User role (admin, normal, deactivated)
+    role = db.Column(db.String(20), default='normal')  # Added role field
 
     # Method to set the user's password (hashes the password)
     def set_password(self, password):
@@ -45,6 +46,18 @@ class User(db.Model):
 # Create tables in the database if they don't exist
 with app.app_context():
     db.create_all()
+
+    # Check if the admin user already exists
+    admin_user = User.query.filter_by(username='admin').first()
+    if not admin_user:
+        # Create the admin user
+        admin_user = User(username='admin', role='admin')  # Set role to admin
+        admin_user.set_password('admin')
+        db.session.add(admin_user)
+        db.session.commit()
+        print("Admin user created.")
+    else:
+        print("Admin user already exists.")
 
 # Define the root route (just a simple hello message)
 @app.route('/')
@@ -109,6 +122,38 @@ def login():
     else:
         # Return a 401 (Unauthorized) error if the login is incorrect
         return jsonify({'message': 'Invalid username or password'}), 401
+
+# Define the /update-password route (handles user password update)
+@app.route('/update-password', methods=['POST'])
+@jwt_required()  # Protect this route with JWT authentication
+def update_password():
+    # Get the JSON data from the request body
+    data = request.get_json()
+    # Extract the old password and new password from the JSON data
+    old_password = data.get('old_password')
+    new_password = data.get('new_password')
+
+    # Validate that both old_password and new_password are provided
+    if not old_password or not new_password:
+        # Return a 400 (Bad Request) error if either is missing
+        return jsonify({'message': 'Old password and new password are required'}), 400
+
+    # Get the identity of the current user from the JWT token
+    current_user_username = get_jwt_identity()
+    # Find the user with the given username
+    user = User.query.filter_by(username=current_user_username).first()
+
+    # Check if the user exists and the old password is correct
+    if user and user.check_password(old_password):
+        # Set the new password (hashes it automatically)
+        user.set_password(new_password)
+        # Commit the changes to the database
+        db.session.commit()
+        # Return a success message
+        return jsonify({'message': 'Password updated successfully'}), 200
+    else:
+        # Return a 401 (Unauthorized) error if the old password is incorrect
+        return jsonify({'message': 'Invalid old password'}), 401
 
 # Run the app if the script is executed directly
 if __name__ == '__main__':

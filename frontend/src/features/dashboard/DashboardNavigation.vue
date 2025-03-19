@@ -1,11 +1,11 @@
 <template>
   <nav class="dashboard-navigation">
     <NavigationGroup title="User Settings" :is-open="true">
-      <NavigationItem label="Your Profile" />
       <NavigationItem label="Your Accounts" />
       <NavigationItem label="Your Workflows" />
     </NavigationGroup>
     <NavigationGroup title="Account" :is-open="true">
+      <NavigationItem label="Your Profile" @click="$emit('show-profile')" />
       <NavigationItem label="Sign Out" @click="$emit('logout')" />
     </NavigationGroup>
   </nav>
@@ -15,7 +15,7 @@
 import NavigationGroup from './NavigationGroup.vue';
 import NavigationItem from './NavigationItem.vue';
 
-defineEmits(['logout']);
+defineEmits(['logout', 'show-profile']);
 </script>
 
 <style scoped>
