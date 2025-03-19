@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:13
+    networks:
+      - npmext	
+    environment:
+      POSTGRES_USER: todo_user
+      POSTGRES_PASSWORD: todo_password
+      POSTGRES_DB: todo_db
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U todo_user -d todo_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  api:
+    build: ./backend
+    networks:
+      - npmext	
+    environment:
+      DATABASE_URL: postgresql://todo_user:todo_password@db:5432/todo_db
+      JWT_SECRET_KEY: your-secret-key
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+  frontend:
+    build: ./frontend
+    ports:
+      - "8888:8888"
+    networks:
+      - npmext	
+    volumes:
+      - ./frontend/src:/app/src
+    depends_on:
+      - api
+volumes:
+  db_data:
+networks:
+  npmext:
+    external: true
+    name: npmnetwork
