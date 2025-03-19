@@ -4,6 +4,10 @@
       <NavigationItem label="Your Accounts" />
       <NavigationItem label="Your Workflows" />
     </NavigationGroup>
+    <NavigationGroup v-if="isAdmin" title="Administration" :is-open="true">
+      <NavigationItem label="Manage Users" />
+      <NavigationItem label="Manage Workflows" />
+    </NavigationGroup>
     <NavigationGroup title="Account" :is-open="true">
       <NavigationItem label="Your Profile" @click="$emit('show-profile')" />
       <NavigationItem label="Sign Out" @click="$emit('logout')" />
@@ -14,8 +18,26 @@
 <script setup>
 import NavigationGroup from './NavigationGroup.vue';
 import NavigationItem from './NavigationItem.vue';
+import { ref, onMounted } from 'vue';
+import { jwtDecode } from 'jwt-decode';
 
 defineEmits(['logout', 'show-profile']);
+
+const isAdmin = ref(false);
+
+onMounted(() => {
+  const token = localStorage.getItem('access_token');
+  if (token) {
+    try {
+      const decodedToken = jwtDecode(token);
+      if (decodedToken.role === 'admin') {
+        isAdmin.value = true;
+      }
+    } catch (error) {
+      console.error('Error decoding token:', error);
+    }
+  }
+});
 </script>
 
 <style scoped>

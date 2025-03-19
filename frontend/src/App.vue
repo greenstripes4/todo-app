@@ -21,31 +21,19 @@ const handleLogin = () => {
 </script>
 
 <template>
-  <main class="full-screen">
-    <Dashboard v-if="isLoggedIn" @logout="logout" class="full-screen" />
-    <AuthLayout v-else :API_ENDPOINT="API_ENDPOINT" @login="handleLogin" class="auth-layout-container" />
+  <main>
+    <Dashboard v-if="isLoggedIn" @logout="logout"/>
+    <AuthLayout v-else :API_ENDPOINT="API_ENDPOINT" @login="handleLogin"/>
   </main>
 </template>
 
 <style scoped>
-.full-screen {
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
 
 main {
   height: 100vh;
-  display: flex; /* Added */
-  justify-content: center; /* Added */
-  align-items: center; /* Added */
-}
-
-.auth-layout-container {
-  /* width: 100vw; Removed */
-  /* height: 100vh; Removed */
   display: flex;
   justify-content: center;
   align-items: center;
 }
+
 </style>

@@ -1,6 +1,6 @@
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, get_jwt
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_cors import CORS
 import os
@@ -115,10 +115,11 @@ def login():
 
     # Check if the user exists and the password is correct
     if user and user.check_password(password):
-        # Create an access token for the user
-        access_token = create_access_token(identity=username)
-        # Return the access token and a success message
-        return jsonify({'message': 'Logged in successfully', 'access_token': access_token}), 200
+        # Create an access token for the user, including the role
+        additional_claims = {"role": user.role}
+        access_token = create_access_token(identity=username, additional_claims=additional_claims)
+        # Return the access token, the role and a success message
+        return jsonify({'message': 'Logged in successfully', 'access_token': access_token, 'role': user.role}), 200
     else:
         # Return a 401 (Unauthorized) error if the login is incorrect
         return jsonify({'message': 'Invalid username or password'}), 401
