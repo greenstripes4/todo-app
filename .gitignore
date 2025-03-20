@@ -4,6 +4,6 @@ frontend/dist
 frontend/.env
 
 # Python
-backend/__pycache__
+backend/**/__pycache__/
 backend/*.pyc
 backend/.venv
