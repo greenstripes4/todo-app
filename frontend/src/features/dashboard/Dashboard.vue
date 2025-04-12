@@ -5,12 +5,18 @@
       @logout="$emit('logout')"
       @show-profile="setActiveView('profile')"
       @show-manage-users="setActiveView('manageUsers')"
+      @show-manage-workflows="setActiveView('manageWorkflows')"
+      @show-user-accounts="setActiveView('userAccounts')"
+      @show-user-workflows="setActiveView('userWorkflows')"
       @show-default="setActiveView(null)"
     />
     <div class="dashboard-content">
       <!-- Conditionally render views based on activeView -->
       <ProfileView v-if="activeView === 'profile'" />
       <ManageUsersView v-else-if="activeView === 'manageUsers'" />
+      <ManageWorkflowsView v-else-if="activeView === 'manageWorkflows'" />
+      <UserAccountsView v-else-if="activeView === 'userAccounts'" />
+      <UserWorkflowsView v-else-if="activeView === 'userWorkflows'" /> <!-- Render UserWorkflowsView -->
       <!-- Show default content only when no specific view is active -->
       <template v-else>
         <h1>Welcome!</h1>
@@ -26,6 +32,9 @@ import { ref } from 'vue';
 import DashboardNavigation from './DashboardNavigation.vue';
 import ProfileView from './ProfileView.vue';
 import ManageUsersView from './ManageUsersView.vue';
+import ManageWorkflowsView from './ManageWorkflowsView.vue';
+import UserAccountsView from './UserAccountsView.vue';
+import UserWorkflowsView from './UserWorkflowsView.vue'; // <-- Import UserWorkflowsView
 
 defineEmits(['logout']);
 
@@ -37,13 +46,10 @@ const setActiveView = (viewName) => {
   activeView.value = viewName;
 };
 
-// Optional: If you need a way to explicitly go back to the default view
-// const showDefaultView = () => {
-//   setActiveView(null);
-// };
 </script>
 
 <style scoped>
+/* Styles remain unchanged as requested */
 .dashboard {
   display: flex;
   height: 100%;
@@ -71,8 +77,8 @@ const setActiveView = (viewName) => {
   padding: 20px;
   height: 100%; /* Take full height of the flex container */
   overflow-y: auto; /* Allow content area to scroll if needed */
-  /* Removed margin-left as flexbox handles positioning */
-  /* margin-left: 200px; */
+  margin-left: 200px; /* Add this back since navigation is position: fixed */
+
 }
 
 h1 {

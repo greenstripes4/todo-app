@@ -1,12 +1,12 @@
 <template>
   <nav class="dashboard-navigation">
     <NavigationGroup title="User Settings" :is-open="true">
-      <NavigationItem label="Your Accounts" />
-      <NavigationItem label="Your Workflows" />
+      <NavigationItem label="Your Accounts" @click="$emit('show-user-accounts')" />
+      <NavigationItem label="Your Workflows" @click="$emit('show-user-workflows')" />
     </NavigationGroup>
     <NavigationGroup v-if="isAdmin" title="Administration" :is-open="true">
       <NavigationItem label="Manage Users" @click="$emit('show-manage-users')" />
-      <NavigationItem label="Manage Workflows" />
+      <NavigationItem label="Manage Workflows" @click="$emit('show-manage-workflows')" />
     </NavigationGroup>
     <NavigationGroup title="Account" :is-open="true">
       <NavigationItem label="Your Profile" @click="$emit('show-profile')" />
@@ -21,7 +21,15 @@ import NavigationItem from './NavigationItem.vue';
 import { ref, onMounted } from 'vue';
 import { jwtDecode } from 'jwt-decode';
 
-defineEmits(['logout', 'show-profile', 'show-manage-users']);
+// Add 'show-user-workflows' to the list of emitted events
+defineEmits([
+  'logout',
+  'show-profile',
+  'show-manage-users',
+  'show-user-accounts',
+  'show-manage-workflows',
+  'show-user-workflows',
+]);
 
 const isAdmin = ref(false);
 
@@ -30,11 +38,10 @@ onMounted(() => {
   if (token) {
     try {
       const decodedToken = jwtDecode(token);
-      if (decodedToken.role === 'admin') {
-        isAdmin.value = true;
-      }
+      isAdmin.value = decodedToken.role === 'admin';
     } catch (error) {
       console.error('Error decoding token:', error);
+      // Handle token error, e.g., redirect to login
     }
   }
 });
@@ -42,10 +49,11 @@ onMounted(() => {
 
 <style scoped>
 .dashboard-navigation {
-  width: 250px;
-  background-color: #f0f0f0;
+  width: 250px; /* Ensure this matches the margin-left in Dashboard.vue */
+  background-color: #f0f0f0; /* Example background */
   padding: 20px;
   border-right: 1px solid #ccc;
   height: 100%;
+  /* Remove fixed positioning if it's inside the flex container */
 }
 </style>
