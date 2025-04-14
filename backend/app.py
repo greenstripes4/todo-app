@@ -24,7 +24,7 @@ jwt = JWTManager(app)
 # Import the User model from the models package
 from models.user import User
 # Import the WebsiteAccount model
-from models.website_account import WebsiteAccount # <<<--- Add this import
+from models.website_account import WebsiteAccount
 
 # Create tables in the database if they don't exist
 with app.app_context():
@@ -75,12 +75,14 @@ with app.app_context():
 # Import routes from the routes package
 from routes.auth import auth_bp
 from routes.user import user_bp
-from routes.website_account import website_account_bp # <<<--- Add this import
+from routes.website_account import website_account_bp
+from routes.health import health_bp
 
 # Register the blueprints
 app.register_blueprint(auth_bp)
 app.register_blueprint(user_bp)
-app.register_blueprint(website_account_bp) # <<<--- Register the new blueprint
+app.register_blueprint(website_account_bp)
+app.register_blueprint(health_bp)
 
 # Define the root route (just a simple hello message)
 @app.route('/')
@@ -89,4 +91,7 @@ def hello():
 
 # Run the app if the script is executed directly
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0')
+    # Make sure debug is False in production!
+    # Use environment variable for debug flag if possible
+    is_debug = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
+    app.run(debug=is_debug, host='0.0.0.0')
