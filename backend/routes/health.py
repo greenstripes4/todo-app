@@ -3,14 +3,24 @@ import datetime
 import logging
 import sys
 import os
-from SpiffWorkflow.workflow import Workflow
 from SpiffWorkflow.specs.WorkflowSpec import WorkflowSpec
 from SpiffWorkflow.serializer.json import JSONSerializer
+from SpiffWorkflow.workflow import Workflow
+from SpiffWorkflow.exceptions import WorkflowException
+from SpiffWorkflow.spiff.parser import SpiffBpmnParser
+from SpiffWorkflow.spiff.specs.defaults import UserTask, ManualTask
+from SpiffWorkflow.spiff.serializer.config import SPIFF_CONFIG
+from SpiffWorkflow.bpmn.specs.mixins.none_task import NoneTask
+from SpiffWorkflow.bpmn.script_engine import TaskDataEnvironment
+from workflows.serializer.file import FileSerializer
+from workflows.engine import BpmnEngine
+from workflows.spiff.curses_handlers import UserTaskHandler, ManualTaskHandler
 
 # --- Configuration ---
 # Assuming BASE_DIR is where your 'workflows' directory resides
 # Adjust if necessary based on where your Flask app is run from
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..')) # Points to backend/
+BPMN_FILE_PATH = os.path.join(BASE_DIR, 'workflows/definitions/dummy_workflow.bpmn')
 JSON_FILE_PATH = os.path.join(BASE_DIR, 'workflows/definitions/nuclear.json')
 SCRIPT_MODULE_PARENT = BASE_DIR # Parent directory of the 'workflows' package
 
@@ -112,3 +122,91 @@ def workflow_check():
             'message': 'Workflow check failed',
             'error': f"{type(e).__name__}: {str(e)}" # Provide error type and message
         }), 500 # 500 Internal Server Error
+
+
+@health_bp.route('/bpmn', methods=['GET'])
+def bpmn_check():
+    """
+    Health Check Endpoint - Workflow Engine
+    Loads and runs a dummy BPMN workflow to check the workflow engine integration.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: Workflow engine check successful.
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  example: ok
+                message:
+                  type: string
+                  example: Workflow check successful
+      500:
+        description: Workflow engine check failed.
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  example: error
+                message:
+                  type: string
+                  example: Workflow check failed
+                error:
+                  type: string
+                  example: "[Errno 2] No such file or directory: '/path/to/dummy_workflow.bpmn'"
+    """
+    logger.info("Received request to start dummy bpmn workflow.")
+    logger.info(f"Attempting to load BPMN file: {BPMN_FILE_PATH}")
+
+    if not os.path.isfile(BPMN_FILE_PATH):
+        logger.error(f"BPMN file not found or is not a file at {BPMN_FILE_PATH}")
+        return jsonify({'message': 'Workflow definition file not found on server.'}), 500
+
+    try:
+        dirname = 'wfdata'
+        FileSerializer.initialize(dirname)
+        registry = FileSerializer.configure(SPIFF_CONFIG)
+        serializer = FileSerializer(dirname, registry=registry)
+        parser = SpiffBpmnParser()
+        
+        handlers = {
+            UserTask: UserTaskHandler,
+            ManualTask: ManualTaskHandler,
+            NoneTask: ManualTaskHandler,
+        }
+
+        script_env = TaskDataEnvironment({'datetime': datetime })
+        engine = BpmnEngine(parser, serializer, script_env)
+
+        spec_id = engine.add_spec('minimal_start_end_process', {BPMN_FILE_PATH}, None)
+        # spec_id = engine.list_specs()[0]
+
+        engine.start_workflow(spec_id).run_until_user_input_required()
+        
+        # 4. Return success response
+        return jsonify({
+            'status': 'ok',
+            'message': 'Workflow check successful'
+        }), 200
+
+    except Exception as e:
+        # Catch any other exceptions during spec loading or workflow execution
+        # This could be errors within the BPMN definition or the engine itself
+        print(f"ERROR [Health Check]: Failed to load or run workflow: {e}") # Log the error
+        # Consider logging the full traceback here in a real application for debugging
+        # import traceback
+        # print(traceback.format_exc())
+        return jsonify({
+            'status': 'error',
+            'message': 'Workflow check failed',
+            'error': f"{type(e).__name__}: {str(e)}" # Provide error type and message
+        }), 500 # 500 Internal Server Error
+

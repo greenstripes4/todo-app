@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:spiffworkflow="http://spiffworkflow.org/bpmn/schema/1.0/core"
+             targetNamespace="http://example.com/minimal_workflow"
+             id="minimal_definitions">
+
+  <process id="minimal_start_end_process" name="Minimal Start-End Process" isExecutable="true">
+    <startEvent id="start_event" name="Start"/>
+    <sequenceFlow id="flow_to_end" sourceRef="start_event" targetRef="end_event"/>
+    <endEvent id="end_event" name="End"/>
+  </process>
+</definitions>
