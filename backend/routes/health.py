@@ -20,7 +20,7 @@ from workflows.spiff.curses_handlers import UserTaskHandler, ManualTaskHandler
 # Assuming BASE_DIR is where your 'workflows' directory resides
 # Adjust if necessary based on where your Flask app is run from
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..')) # Points to backend/
-BPMN_FILE_PATH = os.path.join(BASE_DIR, 'workflows/definitions/dummy_workflow.bpmn')
+BPMN_FILE_PATH = os.path.join(BASE_DIR, 'workflows/definitions/simple_python_embed.bpmn')
 JSON_FILE_PATH = os.path.join(BASE_DIR, 'workflows/definitions/nuclear.json')
 SCRIPT_MODULE_PARENT = BASE_DIR # Parent directory of the 'workflows' package
 
@@ -186,7 +186,7 @@ def bpmn_check():
         script_env = TaskDataEnvironment({'datetime': datetime })
         engine = BpmnEngine(parser, serializer, script_env)
 
-        spec_id = engine.add_spec('minimal_start_end_process', {BPMN_FILE_PATH}, None)
+        spec_id = engine.add_spec('WriteToFileProcess', {BPMN_FILE_PATH}, None)
         # spec_id = engine.list_specs()[0]
 
         engine.start_workflow(spec_id).run_until_user_input_required()
