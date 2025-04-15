@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_DSAR_Workflow"
+                  targetNamespace="http://bpmn.io/schema/bpmn"
+                  exporter="Gemini Code Assist"
+                  exporterVersion="1.1">
+
+  <!-- Added Message Definition for Abort -->
+  <bpmn:message id="Message_AbortDSAR" name="AbortDSARMessage" />
+
+  <bpmn:process id="Process_DSAR_Request" name="DSAR Request Process" isExecutable="true">
+
+    <bpmn:documentation>Handles a Data Subject Access Request (DSAR).
+Input: JSON object containing { websiteUrl, userAccountName, userEmail, websiteContactEmail, outputLocation }
+Output: User data file stored at outputLocation.
+Can be aborted via an 'AbortDSARMessage'.</bpmn:documentation>
+
+    <bpmn:startEvent id="StartEvent_RequestReceived" name="DSAR Request Received">
+      <bpmn:outgoing>Flow_To_ValidateInput</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <!-- Data Object Reference for Input JSON -->
+    <bpmn:dataObjectReference id="DataObjectRef_InputJson" name="DSAR Input Data" dataObjectRef="DataObject_InputJson" />
+    <bpmn:dataObject id="DataObject_InputJson" />
+
+    <bpmn:task id="Task_ValidateInput" name="Validate Input Data">
+      <bpmn:documentation>Check if all required fields in the input JSON are present and valid.</bpmn:documentation>
+      <bpmn:incoming>Flow_To_ValidateInput</bpmn:incoming>
+      <bpmn:outgoing>Flow_To_FormulateRequest</bpmn:outgoing>
+      <bpmn:property id="Property_InputJson" name="__targetRef_placeholder" />
+      <bpmn:dataInputAssociation id="DataInputAssoc_Validate">
+        <bpmn:sourceRef>DataObjectRef_InputJson</bpmn:sourceRef>
+        <bpmn:targetRef>Property_InputJson</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:task>
+
+    <bpmn:sequenceFlow id="Flow_To_ValidateInput" sourceRef="StartEvent_RequestReceived" targetRef="Task_ValidateInput" />
+
+    <bpmn:task id="Task_FormulateRequest" name="Formulate DSAR Email">
+      <bpmn:documentation>Create the DSAR request email content using details from the input JSON.</bpmn:documentation>
+      <bpmn:incoming>Flow_To_FormulateRequest</bpmn:incoming>
+      <bpmn:outgoing>Flow_To_SendRequest</bpmn:outgoing>
+    </bpmn:task>
+
+    <bpmn:sequenceFlow id="Flow_To_FormulateRequest" sourceRef="Task_ValidateInput" targetRef="Task_FormulateRequest" />
+
+    <bpmn:sendTask id="Task_SendRequest" name="Send Request to Website">
+       <bpmn:documentation>Send the formulated DSAR email to the website's contact email address.</bpmn:documentation>
+      <bpmn:incoming>Flow_To_SendRequest</bpmn:incoming>
+      <bpmn:outgoing>Flow_To_WaitForResponse</bpmn:outgoing>
+    </bpmn:sendTask>
+
+    <bpmn:sequenceFlow id="Flow_To_SendRequest" sourceRef="Task_FormulateRequest" targetRef="Task_SendRequest" />
+
+    <bpmn:intermediateCatchEvent id="Event_WaitForResponse" name="Wait for Response (e.g., 30 days)">
+      <bpmn:documentation>Pause the process to allow time for the website to respond. Typically up to 30 days by regulation.</bpmn:documentation>
+      <bpmn:incoming>Flow_To_WaitForResponse</bpmn:incoming>
+      <bpmn:outgoing>Flow_To_CheckAndReceive</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerEventDefinition_WaitPeriod">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P30D</bpmn:timeDuration> <!-- ISO 8601 duration for 30 Days -->
+      </bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+
+    <bpmn:sequenceFlow id="Flow_To_WaitForResponse" sourceRef="Task_SendRequest" targetRef="Event_WaitForResponse" />
+
+    <bpmn:task id="Task_CheckAndReceiveData" name="Check for and Receive Data File">
+      <bpmn:documentation>Check if the data file has been provided (e.g., via email attachment, download link) and retrieve it.</bpmn:documentation>
+      <bpmn:incoming>Flow_To_CheckAndReceive</bpmn:incoming>
+      <bpmn:outgoing>Flow_To_StoreFile</bpmn:outgoing>
+    </bpmn:task>
+
+    <bpmn:sequenceFlow id="Flow_To_CheckAndReceive" sourceRef="Event_WaitForResponse" targetRef="Task_CheckAndReceiveData" />
+
+    <!-- Data Object Reference for Output File -->
+    <bpmn:dataObjectReference id="DataObjectRef_OutputFile" name="Retrieved User Data File" dataObjectRef="DataObject_OutputFile" />
+    <bpmn:dataObject id="DataObject_OutputFile" />
+
+    <bpmn:task id="Task_StoreFile" name="Store Received File">
+       <bpmn:documentation>Save the retrieved user data file to the location specified in the input JSON.</bpmn:documentation>
+      <bpmn:incoming>Flow_To_StoreFile</bpmn:incoming>
+      <bpmn:outgoing>Flow_To_End</bpmn:outgoing>
+      <bpmn:property id="Property_OutputFile" name="__targetRef_placeholder" />
+      <bpmn:dataOutputAssociation id="DataOutputAssoc_Store">
+        <bpmn:sourceRef>Property_OutputFile</bpmn:sourceRef> <!-- Represents the file data handled by the task -->
+        <bpmn:targetRef>DataObjectRef_OutputFile</bpmn:targetRef>
+      </bpmn:dataOutputAssociation>
+    </bpmn:task>
+
+    <bpmn:sequenceFlow id="Flow_To_StoreFile" sourceRef="Task_CheckAndReceiveData" targetRef="Task_StoreFile" />
+
+    <bpmn:endEvent id="EndEvent_RequestComplete" name="DSAR Process Complete">
+      <bpmn:incoming>Flow_To_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="Flow_To_End" sourceRef="Task_StoreFile" targetRef="EndEvent_RequestComplete" />
+
+    <!-- Added Abort Path -->
+    <bpmn:intermediateCatchEvent id="Event_AbortRequested" name="Abort Requested">
+       <bpmn:documentation>Listens for an external message to abort the process.</bpmn:documentation>
+       <bpmn:outgoing>Flow_To_Terminate</bpmn:outgoing>
+       <bpmn:messageEventDefinition id="MessageEventDefinition_Abort" messageRef="Message_AbortDSAR" />
+    </bpmn:intermediateCatchEvent>
+
+    <bpmn:sequenceFlow id="Flow_To_Terminate" sourceRef="Event_AbortRequested" targetRef="EndEvent_ProcessAborted" />
+
+    <bpmn:endEvent id="EndEvent_ProcessAborted" name="Process Aborted">
+       <bpmn:documentation>Terminates the entire process immediately.</bpmn:documentation>
+       <bpmn:incoming>Flow_To_Terminate</bpmn:incoming>
+       <bpmn:terminateEventDefinition id="TerminateEventDefinition_Abort" />
+    </bpmn:endEvent>
+
+  </bpmn:process>
+
+  <!-- BPMN Diagram Information -->
+  <bpmndi:BPMNDiagram id="BPMNDiagram_DSAR">
+    <bpmndi:BPMNPlane id="BPMNPlane_DSAR" bpmnElement="Process_DSAR_Request">
+      <!-- Existing Shapes -->
+      <bpmndi:BPMNShape id="Shape_StartEvent_RequestReceived" bpmnElement="StartEvent_RequestReceived">
+        <dc:Bounds x="179" y="159" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="152" y="202" width="90" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ValidateInput" bpmnElement="Task_ValidateInput">
+        <dc:Bounds x="270" y="137" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_FormulateRequest" bpmnElement="Task_FormulateRequest">
+        <dc:Bounds x="430" y="137" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_SendRequest" bpmnElement="Task_SendRequest">
+        <dc:Bounds x="590" y="137" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Event_WaitForResponse" bpmnElement="Event_WaitForResponse">
+        <dc:Bounds x="752" y="159" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="728" y="202" width="84" height="40" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_CheckAndReceiveData" bpmnElement="Task_CheckAndReceiveData">
+        <dc:Bounds x="850" y="137" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_StoreFile" bpmnElement="Task_StoreFile">
+        <dc:Bounds x="1010" y="137" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_EndEvent_RequestComplete" bpmnElement="EndEvent_RequestComplete">
+        <dc:Bounds x="1172" y="159" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1149" y="202" width="82" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_DataObjectRef_InputJson" bpmnElement="DataObjectRef_InputJson">
+        <dc:Bounds x="232" y="255" width="36" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="211" y="312" width="78" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+       <bpmndi:BPMNShape id="Shape_DataObjectRef_OutputFile" bpmnElement="DataObjectRef_OutputFile">
+        <dc:Bounds x="1042" y="255" width="36" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1007" y="312" width="107" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- Added Shapes for Abort Path -->
+      <bpmndi:BPMNShape id="Shape_Event_AbortRequested" bpmnElement="Event_AbortRequested">
+        <dc:Bounds x="502" y="299" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="479" y="342" width="82" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_EndEvent_ProcessAborted" bpmnElement="EndEvent_ProcessAborted">
+        <dc:Bounds x="632" y="299" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="609" y="342" width="82" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- Existing Edges -->
+      <bpmndi:BPMNEdge id="Edge_Flow_To_ValidateInput" bpmnElement="Flow_To_ValidateInput">
+        <di:waypoint x="215" y="177" />
+        <di:waypoint x="270" y="177" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_To_FormulateRequest" bpmnElement="Flow_To_FormulateRequest">
+        <di:waypoint x="370" y="177" />
+        <di:waypoint x="430" y="177" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_To_SendRequest" bpmnElement="Flow_To_SendRequest">
+        <di:waypoint x="530" y="177" />
+        <di:waypoint x="590" y="177" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_To_WaitForResponse" bpmnElement="Flow_To_WaitForResponse">
+        <di:waypoint x="690" y="177" />
+        <di:waypoint x="752" y="177" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_To_CheckAndReceive" bpmnElement="Flow_To_CheckAndReceive">
+        <di:waypoint x="788" y="177" />
+        <di:waypoint x="850" y="177" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_To_StoreFile" bpmnElement="Flow_To_StoreFile">
+        <di:waypoint x="950" y="177" />
+        <di:waypoint x="1010" y="177" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_To_End" bpmnElement="Flow_To_End">
+        <di:waypoint x="1110" y="177" />
+        <di:waypoint x="1172" y="177" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_DataInputAssoc_Validate" bpmnElement="DataInputAssoc_Validate">
+        <di:waypoint x="250" y="255" />
+        <di:waypoint x="250" y="197" /> <!-- Adjusted y slightly for clarity -->
+        <di:waypoint x="270" y="197" /> <!-- Adjusted y slightly for clarity -->
+      </bpmndi:BPMNEdge>
+       <bpmndi:BPMNEdge id="Edge_DataOutputAssoc_Store" bpmnElement="DataOutputAssoc_Store">
+        <di:waypoint x="1060" y="217" />
+        <di:waypoint x="1060" y="255" />
+      </bpmndi:BPMNEdge>
+
+      <!-- Added Edge for Abort Path -->
+      <bpmndi:BPMNEdge id="Edge_Flow_To_Terminate" bpmnElement="Flow_To_Terminate">
+        <di:waypoint x="538" y="317" />
+        <di:waypoint x="632" y="317" />
+      </bpmndi:BPMNEdge>
+
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+
+</bpmn:definitions>

@@ -1,4 +1,6 @@
 import os
+import datetime
+import sqlite3
 from flask import Flask, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager
@@ -20,6 +22,44 @@ app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY')
 db = SQLAlchemy(app)
 # Initialize the JWTManager extension
 jwt = JWTManager(app)
+
+# Initialize the BpmnEngine with SQLite
+from SpiffWorkflow.spiff.parser import SpiffBpmnParser
+from SpiffWorkflow.spiff.serializer import DEFAULT_CONFIG
+from SpiffWorkflow.bpmn import BpmnWorkflow
+from SpiffWorkflow.bpmn.util.subworkflow import BpmnSubWorkflow
+from SpiffWorkflow.bpmn.specs import BpmnProcessSpec
+from SpiffWorkflow.bpmn.script_engine import TaskDataEnvironment
+from workflows.engine import BpmnEngine
+from workflows.serializer.sqlite import (
+    SqliteSerializer,
+    WorkflowConverter,
+    SubworkflowConverter,
+    WorkflowSpecConverter
+)
+
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__))) # Points to backend/
+BPMN_FILE_PATHS = {os.path.join(BASE_DIR, 'workflows/definitions/dsar.bpmn')}
+spiff_dbname = 'spiff.db'
+
+DEFAULT_CONFIG[BpmnWorkflow] = WorkflowConverter
+DEFAULT_CONFIG[BpmnSubWorkflow] = SubworkflowConverter
+DEFAULT_CONFIG[BpmnProcessSpec] = WorkflowSpecConverter
+
+# Initialize the database schema (important for SQLite)
+with sqlite3.connect(spiff_dbname) as spiff_db:
+    SqliteSerializer.initialize(spiff_db)
+
+# Configure and create the serializer instance
+registry = SqliteSerializer.configure(DEFAULT_CONFIG)
+serializer = SqliteSerializer(spiff_dbname, registry=registry)
+# --- End SqliteSerializer Setup ---
+
+parser = SpiffBpmnParser()
+
+script_env = TaskDataEnvironment({'datetime': datetime })
+engine = BpmnEngine(parser, serializer, script_env)
+engine.add_spec('Process_DSAR_Request', BPMN_FILE_PATHS, None)
 
 # Import the User model from the models package
 from models.user import User
