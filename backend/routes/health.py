@@ -3,16 +3,29 @@ import datetime
 import logging
 import sys
 import os
+import sqlite3 # Added for SqliteSerializer
 from SpiffWorkflow.specs.WorkflowSpec import WorkflowSpec
 from SpiffWorkflow.serializer.json import JSONSerializer
 from SpiffWorkflow.workflow import Workflow
 from SpiffWorkflow.exceptions import WorkflowException
 from SpiffWorkflow.spiff.parser import SpiffBpmnParser
 from SpiffWorkflow.spiff.specs.defaults import UserTask, ManualTask
-from SpiffWorkflow.spiff.serializer.config import SPIFF_CONFIG
+from SpiffWorkflow.spiff.serializer import DEFAULT_CONFIG
+from SpiffWorkflow.bpmn import BpmnWorkflow # Added for SqliteSerializer config
+from SpiffWorkflow.bpmn.util.subworkflow import BpmnSubWorkflow # Added for SqliteSerializer config
+from SpiffWorkflow.bpmn.specs import BpmnProcessSpec # Added for SqliteSerializer config
 from SpiffWorkflow.bpmn.specs.mixins.none_task import NoneTask
 from SpiffWorkflow.bpmn.script_engine import TaskDataEnvironment
-from workflows.serializer.file import FileSerializer
+# Remove FileSerializer import if no longer needed elsewhere in the file
+# from SpiffWorkflow.spiff.serializer.config import SPIFF_CONFIG
+# from workflows.serializer.file import FileSerializer
+# Add SqliteSerializer imports
+from workflows.serializer.sqlite import (
+    SqliteSerializer,
+    WorkflowConverter,
+    SubworkflowConverter,
+    WorkflowSpecConverter
+)
 from workflows.engine import BpmnEngine
 from workflows.spiff.curses_handlers import UserTaskHandler, ManualTaskHandler
 
@@ -94,6 +107,42 @@ def time_check():
 
 @health_bp.route('/workflow', methods=['GET'])
 def workflow_check():
+    """
+    Health Check Endpoint - Basic SpiffWorkflow (JSON)
+    Loads and runs a simple JSON-based workflow.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: Basic workflow check successful.
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  example: ok
+                message:
+                  type: string
+                  example: Workflow check successful
+      500:
+        description: Basic workflow check failed.
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  example: error
+                message:
+                  type: string
+                  example: Workflow check failed
+                error:
+                  type: string
+    """
     logger.info("Received request to start spiffworkflow workflow.")
     try:
         with open(JSON_FILE_PATH) as fp:
@@ -111,12 +160,16 @@ def workflow_check():
             'status': 'ok',
             'message': 'Workflow check successful'
         }), 200
+    except FileNotFoundError:
+        logger.error(f"ERROR [Health Check - Workflow]: JSON definition file not found at {JSON_FILE_PATH}")
+        return jsonify({
+            'status': 'error',
+            'message': 'Workflow check failed',
+            'error': f"File not found: {JSON_FILE_PATH}"
+        }), 500
     except Exception as e:
         # Catch any other exceptions during spec loading or workflow execution
-        print(f"ERROR [Health Check]: Failed to load or run workflow: {e}") # Log the error
-        # Consider logging the full traceback here in a real application for debugging
-        # import traceback
-        # print(traceback.format_exc())
+        logger.error(f"ERROR [Health Check - Workflow]: Failed to load or run workflow: {e}", exc_info=True) # Log traceback
         return jsonify({
             'status': 'error',
             'message': 'Workflow check failed',
@@ -127,7 +180,7 @@ def workflow_check():
 @health_bp.route('/bpmn', methods=['GET'])
 def bpmn_check():
     """
-    Health Check Endpoint - Workflow Engine
+    Health Check Endpoint - Workflow Engine (using SQLite)
     Loads and runs a dummy BPMN workflow to check the workflow engine integration.
     ---
     tags:
@@ -163,50 +216,75 @@ def bpmn_check():
                   type: string
                   example: "[Errno 2] No such file or directory: '/path/to/dummy_workflow.bpmn'"
     """
-    logger.info("Received request to start dummy bpmn workflow.")
+    logger.info("Received request to start dummy bpmn workflow (SQLite).")
     logger.info(f"Attempting to load BPMN file: {BPMN_FILE_PATH}")
 
-    if not os.path.isfile(BPMN_FILE_PATH):
-        logger.error(f"BPMN file not found or is not a file at {BPMN_FILE_PATH}")
-        return jsonify({'message': 'Workflow definition file not found on server.'}), 500
+    # TODO: Use an in-memory SQLite database for the health check 
+    # Looking at workflows/serializer/sqlite/serializer.py, the execute method always opens a new connection 
+    # using sqlite3.connect(self.dbname, ...). When dbname is ':memory:', this creates a new, empty in-memory database
+    # dbname = ':memory:'
+    # Or use a temporary file:
+    dbname = 'health_check_spiff.db'
 
     try:
-        dirname = 'wfdata'
-        FileSerializer.initialize(dirname)
-        registry = FileSerializer.configure(SPIFF_CONFIG)
-        serializer = FileSerializer(dirname, registry=registry)
+        DEFAULT_CONFIG[BpmnWorkflow] = WorkflowConverter
+        DEFAULT_CONFIG[BpmnSubWorkflow] = SubworkflowConverter
+        DEFAULT_CONFIG[BpmnProcessSpec] = WorkflowSpecConverter
+
+        # Initialize the database schema (important for SQLite)
+        with sqlite3.connect(dbname) as db:
+            SqliteSerializer.initialize(db)
+
+        # Configure and create the serializer instance
+        registry = SqliteSerializer.configure(DEFAULT_CONFIG)
+        serializer = SqliteSerializer(dbname, registry=registry)
+        # --- End SqliteSerializer Setup ---
+
         parser = SpiffBpmnParser()
-        
-        handlers = {
-            UserTask: UserTaskHandler,
-            ManualTask: ManualTaskHandler,
-            NoneTask: ManualTaskHandler,
-        }
 
         script_env = TaskDataEnvironment({'datetime': datetime })
         engine = BpmnEngine(parser, serializer, script_env)
 
+        # Add the spec using the engine
+        # The second argument should be a set of file paths
         spec_id = engine.add_spec('WriteToFileProcess', {BPMN_FILE_PATH}, None)
-        # spec_id = engine.list_specs()[0]
 
-        engine.start_workflow(spec_id).run_until_user_input_required()
-        
-        # 4. Return success response
+        # Start a workflow instance and run it
+        workflow_instance = engine.start_workflow(spec_id)
+        workflow_instance.run_until_user_input_required() # Or workflow_instance.complete() if no user tasks
+
+        # Return success response
         return jsonify({
             'status': 'ok',
-            'message': 'Workflow check successful'
+            'message': 'Workflow check successful (SQLite)'
         }), 200
 
-    except Exception as e:
-        # Catch any other exceptions during spec loading or workflow execution
-        # This could be errors within the BPMN definition or the engine itself
-        print(f"ERROR [Health Check]: Failed to load or run workflow: {e}") # Log the error
-        # Consider logging the full traceback here in a real application for debugging
-        # import traceback
-        # print(traceback.format_exc())
+    except FileNotFoundError: # More specific error for the BPMN file itself
+        logger.error(f"ERROR [Health Check - BPMN SQLite]: BPMN definition file not found at {BPMN_FILE_PATH}")
         return jsonify({
             'status': 'error',
-            'message': 'Workflow check failed',
+            'message': 'Workflow check failed (SQLite)',
+            'error': f"File not found: {BPMN_FILE_PATH}"
+        }), 500
+    except Exception as e:
+        # Catch any other exceptions during spec loading or workflow execution
+        logger.error(f"ERROR [Health Check - BPMN SQLite]: Failed to load or run workflow: {e}", exc_info=True) # Log traceback
+        # Consider removing the temporary db file if you used one
+        # if dbname != ':memory:' and os.path.exists(dbname):
+        #     try:
+        #         os.remove(dbname)
+        #     except OSError as rm_err:
+        #         logger.error(f"Error removing temporary health check db '{dbname}': {rm_err}")
+
+        return jsonify({
+            'status': 'error',
+            'message': 'Workflow check failed (SQLite)',
             'error': f"{type(e).__name__}: {str(e)}" # Provide error type and message
         }), 500 # 500 Internal Server Error
+    finally: # Optional cleanup if using a file db
+        if dbname != ':memory:' and os.path.exists(dbname):
+            try:
+                os.remove(dbname)
+            except OSError as rm_err:
+                logger.error(f"Error removing temporary health check db '{dbname}' in finally block: {rm_err}")
 
