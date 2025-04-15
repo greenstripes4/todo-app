@@ -117,12 +117,14 @@ from routes.auth import auth_bp
 from routes.user import user_bp
 from routes.website_account import website_account_bp
 from routes.health import health_bp
+from routes.workflow import workflow_bp
 
 # Register the blueprints
 app.register_blueprint(auth_bp)
 app.register_blueprint(user_bp)
 app.register_blueprint(website_account_bp)
 app.register_blueprint(health_bp)
+app.register_blueprint(workflow_bp)
 
 # Define the root route (just a simple hello message)
 @app.route('/')

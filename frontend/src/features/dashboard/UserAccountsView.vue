@@ -12,6 +12,16 @@
         >
           Invert Selection
         </button>
+        <!-- *** START: New DSAR Workflow Button *** -->
+        <button
+          @click="createDsarWorkflows"
+          class="action-button dsar-button"
+          :disabled="selectedAccountIds.length === 0 || isCreatingWorkflows"
+          title="Create DSAR workflow for selected accounts"
+        >
+          {{ isCreatingWorkflows ? 'Creating...' : 'Create DSAR Workflow' }}
+        </button>
+        <!-- *** END: New DSAR Workflow Button *** -->
         <!-- Add New Account Button -->
         <button @click="openCreateModal" class="add-button">Add New Account</button>
       </div>
@@ -28,6 +38,16 @@
     <div v-if="deleteError" class="error-message">
       {{ deleteError }}
     </div>
+    <!-- *** START: Workflow Creation Error State *** -->
+    <div v-if="workflowError" class="error-message">
+      {{ workflowError }}
+    </div>
+    <!-- *** END: Workflow Creation Error State *** -->
+    <!-- *** START: Workflow Creation Success State *** -->
+    <div v-if="workflowSuccessMessage" class="success-message">
+      {{ workflowSuccessMessage }}
+    </div>
+    <!-- *** END: Workflow Creation Success State *** -->
 
 
     <!-- Data Loaded State -->
@@ -73,10 +93,11 @@
         </tbody>
       </table>
       <!-- Optional: Display selected count or add bulk actions -->
-      <!-- <div v-if="selectedAccountIds.length > 0">
-        Selected: {{ selectedAccountIds.length }}
-        <button @click="bulkDeleteSelected" disabled>Delete Selected</button>
-      </div> -->
+      <div v-if="selectedAccountIds.length > 0" class="selection-info">
+        Selected: {{ selectedAccountIds.length }} account(s)
+        <!-- Example bulk delete (currently disabled) -->
+        <!-- <button @click="bulkDeleteSelected" disabled>Delete Selected</button> -->
+      </div>
     </div>
 
     <!-- Edit/Create Account Modal -->
@@ -93,7 +114,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'; // Import computed
+import { ref, onMounted, computed } from 'vue';
 import EditAccountModal from './EditAccountModal.vue';
 
 const accounts = ref([]);
@@ -105,46 +126,42 @@ const accountToEdit = ref(null);
 const modalMode = ref('create');
 const isSaving = ref(false);
 const accountModalRef = ref(null);
-const selectedAccountIds = ref([]); // State for selected account IDs
+const selectedAccountIds = ref([]);
+
+// --- START: New Refs for Workflow Creation ---
+const isCreatingWorkflows = ref(false);
+const workflowError = ref(null);
+const workflowSuccessMessage = ref(null);
+// --- END: New Refs for Workflow Creation ---
 
 const API_ENDPOINT = import.meta.env.VITE_API_ENDPOINT;
 
 // --- Computed Property for "Select All" Checkbox State ---
-// This computed property might become less intuitive with the new flip logic,
-// but it still correctly reflects if *all* items happen to be selected.
 const isAllSelected = computed(() => {
-  // Check if accounts list is not empty and every account ID is in selectedAccountIds
   return accounts.value.length > 0 && accounts.value.every(acc => selectedAccountIds.value.includes(acc.id));
 });
 
 // --- Method to Toggle Select All (via header checkbox) ---
-// This remains the same, controlling the header checkbox behavior
 const toggleSelectAll = (event) => {
   if (event.target.checked) {
-    // Select all: map account IDs to the selected list
     selectedAccountIds.value = accounts.value.map(acc => acc.id);
   } else {
-    // Deselect all: clear the list
     selectedAccountIds.value = [];
   }
 };
 
 // --- Method to Flip All Selections (via button) ---
-// Updated logic: Invert the selection status of each item
 const flipAllSelections = () => {
-  if (accounts.value.length === 0) return; // Do nothing if no accounts
+  if (accounts.value.length === 0) return;
 
   const allAccountIds = accounts.value.map(acc => acc.id);
-  const currentlySelected = new Set(selectedAccountIds.value); // Use a Set for efficient lookup
+  const currentlySelected = new Set(selectedAccountIds.value);
   const newSelectedIds = [];
 
   allAccountIds.forEach(id => {
     if (!currentlySelected.has(id)) {
-      // If it wasn't selected, select it now
       newSelectedIds.push(id);
     }
-    // If it was selected (present in the Set), it's implicitly deselected
-    // by not being added to newSelectedIds.
   });
 
   selectedAccountIds.value = newSelectedIds;
@@ -155,7 +172,9 @@ const fetchAccounts = async () => {
   isLoading.value = true;
   fetchError.value = null;
   deleteError.value = null;
-  selectedAccountIds.value = []; // Clear selection on fetch
+  workflowError.value = null; // Clear workflow errors on fetch
+  workflowSuccessMessage.value = null; // Clear workflow success on fetch
+  selectedAccountIds.value = [];
 
   try {
     const token = localStorage.getItem('access_token');
@@ -193,6 +212,8 @@ const openCreateModal = () => {
   modalMode.value = 'create';
   accountToEdit.value = null;
   deleteError.value = null;
+  workflowError.value = null; // Clear workflow errors
+  workflowSuccessMessage.value = null; // Clear workflow success
   isModalVisible.value = true;
 };
 
@@ -200,6 +221,8 @@ const openEditModal = (account) => {
   modalMode.value = 'edit';
   accountToEdit.value = { ...account };
   deleteError.value = null;
+  workflowError.value = null; // Clear workflow errors
+  workflowSuccessMessage.value = null; // Clear workflow success
   isModalVisible.value = true;
 };
 
@@ -215,6 +238,8 @@ const closeEditModal = () => {
 const handleSaveChanges = async (accountData) => {
   isSaving.value = true;
   deleteError.value = null;
+  workflowError.value = null; // Clear workflow errors
+  workflowSuccessMessage.value = null; // Clear workflow success
   if (accountModalRef.value) {
     accountModalRef.value.setErrorMessage('');
   }
@@ -304,7 +329,8 @@ const handleSaveChanges = async (accountData) => {
     if (accountModalRef.value) {
         accountModalRef.value.setErrorMessage(err.message || `An unexpected error occurred during ${modalMode.value}.`);
     } else {
-        alert(`Save failed: ${err.message}`);
+        // Use a more general error display if modal isn't involved or available
+        fetchError.value = `Save failed: ${err.message}`;
     }
   } finally {
     isSaving.value = false;
@@ -321,6 +347,8 @@ const deleteAccount = async (accountId, accountUrl) => {
   if (!confirmed) return;
 
   deleteError.value = null;
+  workflowError.value = null; // Clear workflow errors
+  workflowSuccessMessage.value = null; // Clear workflow success
 
   try {
     const token = localStorage.getItem('access_token');
@@ -332,7 +360,7 @@ const deleteAccount = async (accountId, accountUrl) => {
       headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
     });
 
-    if (!response.ok && response.status !== 204) {
+    if (!response.ok && response.status !== 204) { // 204 No Content is also a success for DELETE
       let errorMessage = `Deletion failed! Status: ${response.status}`;
       try {
         const errorData = await response.json();
@@ -351,7 +379,92 @@ const deleteAccount = async (accountId, accountUrl) => {
     console.error(`Error deleting account ${accountId}:`, err);
     deleteError.value = err.message || 'An unexpected error occurred during deletion.';
   } finally {
-    // isDeleting.value = false;
+    // No specific loading state for delete needed here as it's quick
+  }
+};
+
+// --- Method to Create DSAR Workflows ---
+const createDsarWorkflows = async () => {
+  if (selectedAccountIds.value.length === 0 || isCreatingWorkflows.value) {
+    return; // Don't run if nothing selected or already running
+  }
+
+  isCreatingWorkflows.value = true;
+  workflowError.value = null;
+  workflowSuccessMessage.value = null;
+  deleteError.value = null; // Clear other errors
+
+  const token = localStorage.getItem('access_token');
+  if (!token) {
+    workflowError.value = 'Authentication token not found. Please log in.';
+    isCreatingWorkflows.value = false;
+    return;
+  }
+
+  const url = `${API_ENDPOINT}/workflows`;
+  const workflowType = 'DSAR'; // As requested
+
+  // --- START: Modification ---
+  // Prepare the payload with the list of selected IDs
+  const payload = {
+    website_account_ids: [...selectedAccountIds.value], // Send the array of selected IDs
+    workflow_type: workflowType,
+  };
+  // --- END: Modification ---
+
+  try {
+    // --- START: Modification ---
+    // Send ONE request with the list of IDs
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      let errorMessage = `Workflow creation failed. Status: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        // Use the specific error message from the backend if available
+        errorMessage = errorData.message || errorMessage;
+      } catch (e) {
+         console.warn("Could not parse error response as JSON.", e);
+      }
+      throw new Error(errorMessage);
+    }
+
+    // Assuming the backend returns a success message or details about created workflows
+    // You might need to adjust this based on the actual API response structure
+    try {
+        const resultData = await response.json();
+        // Example: Use a message from the backend if provided
+        workflowSuccessMessage.value = resultData.message || `Successfully initiated ${selectedAccountIds.value.length} DSAR workflow(s).`;
+    } catch(e) {
+        // Fallback message if response parsing fails or no message field
+        workflowSuccessMessage.value = `Successfully initiated ${selectedAccountIds.value.length} DSAR workflow(s).`;
+        console.warn("Could not parse success response as JSON or missing 'message' field.", e);
+    }
+
+    // Clear selection after successful processing
+    selectedAccountIds.value = [];
+    // --- END: Modification ---
+
+  } catch (error) {
+    console.error(`Error creating DSAR workflows:`, error);
+    // Display the error caught from the fetch or the !response.ok block
+    workflowError.value = error.message || 'An unexpected error occurred during workflow creation.';
+  } finally {
+    isCreatingWorkflows.value = false;
+
+    // Optional: Hide success/error messages after a delay
+    setTimeout(() => {
+        workflowError.value = null;
+        workflowSuccessMessage.value = null;
+    }, 7000); // Hide after 7 seconds
   }
 };
 
@@ -377,21 +490,32 @@ onMounted(() => {
     align-items: center;
 }
 
+/* Common button styles */
 .add-button,
-.invert-button { /* Apply common styles */
+.invert-button,
+.dsar-button { /* Added .dsar-button */
     padding: 8px 15px;
     border: none;
     border-radius: 4px;
     cursor: pointer;
     font-size: 0.95em;
     white-space: nowrap; /* Prevent button text wrapping */
+    transition: background-color 0.2s ease; /* Smooth hover */
 }
+.add-button:disabled,
+.invert-button:disabled,
+.dsar-button:disabled { /* Added .dsar-button */
+    background-color: #c0c4c8;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
 
 .add-button {
     background-color: #28a745; /* Green color for add */
     color: white;
 }
-.add-button:hover {
+.add-button:hover:not(:disabled) {
     background-color: #218838;
 }
 
@@ -399,13 +523,19 @@ onMounted(() => {
     background-color: #6c757d; /* Grey color for invert */
     color: white;
 }
-.invert-button:hover {
+.invert-button:hover:not(:disabled) {
     background-color: #5a6268;
 }
-.invert-button:disabled {
-    background-color: #c0c4c8;
-    cursor: not-allowed;
+
+/* --- START: DSAR Button Styles --- */
+.dsar-button {
+    background-color: #007bff; /* Blue color for action */
+    color: white;
 }
+.dsar-button:hover:not(:disabled) {
+    background-color: #0056b3;
+}
+/* --- END: DSAR Button Styles --- */
 
 
 /* Existing styles remain the same */
@@ -458,23 +588,35 @@ th {
 }
 
 .loading-message,
-.error-message {
-  margin-top: 20px;
+.error-message,
+.success-message { /* Added .success-message */
+  margin-top: 15px; /* Consistent spacing */
+  margin-bottom: 15px;
+  padding: 0.8rem 1rem;
+  border-radius: 4px;
+  border: 1px solid transparent;
 }
 
 .loading-message {
   font-style: italic;
   color: #555;
+  background-color: #e9ecef;
+  border-color: #ced4da;
 }
 
 .error-message {
-  color: #d9534f;
-  background-color: #f2dede;
-  border: 1px solid #ebccd1;
-  padding: 0.8rem;
-  border-radius: 4px;
-  margin-bottom: 1rem;
+  color: #721c24; /* Darker red text */
+  background-color: #f8d7da; /* Light red background */
+  border-color: #f5c6cb; /* Reddish border */
 }
+
+/* --- START: Success Message Style --- */
+.success-message {
+  color: #155724; /* Darker green text */
+  background-color: #d4edda; /* Light green background */
+  border-color: #c3e6cb; /* Greenish border */
+}
+/* --- END: Success Message Style --- */
 
 td button {
   margin-right: 5px;
@@ -489,5 +631,13 @@ td button:disabled {
 td button:last-child {
   margin-right: 0;
 }
+
+/* --- START: Selection Info Style --- */
+.selection-info {
+    margin-top: 15px;
+    font-size: 0.9em;
+    color: #555;
+}
+/* --- END: Selection Info Style --- */
 
 </style>

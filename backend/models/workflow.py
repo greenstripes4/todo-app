@@ -4,6 +4,7 @@ import enum # Import the enum module
 from app import db
 from sqlalchemy.orm import relationship
 from sqlalchemy import func
+from models import User, WebsiteAccount
 
 # Define Enums for type safety
 class WorkflowTypeEnum(enum.Enum):
@@ -28,6 +29,11 @@ class Workflow(db.Model):
     # Foreign key linking to the User table (who triggered the workflow)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
+    # --- New Field ---
+    # Foreign key linking to the WebsiteAccount table (which account the workflow is for)
+    website_account_id = db.Column(db.Integer, db.ForeignKey('website_accounts.id'), nullable=False, index=True)
+    # --- End New Field ---
+
     # Unique identifier for the workflow instance (e.g., could be a UUID string)
     workflow_id = db.Column(db.String(128), unique=True, nullable=False, index=True)
 
@@ -46,11 +52,14 @@ class Workflow(db.Model):
     # Define the relationship to the User model
     user = relationship('User', backref=db.backref('workflows', lazy=True))
 
+    # Define the relationship to the WebsiteAccount model
+    website_account = relationship('WebsiteAccount', backref=db.backref('workflows', lazy=True))
+
     def __repr__(self):
-        # Helpful representation for debugging, showing the enum value
+        # Helpful representation for debugging, showing the enum value and website account ID
         type_value = self.workflow_type.value if self.workflow_type else 'None'
         status_value = self.workflow_status.value if self.workflow_status else 'None'
-        return f'<Workflow {self.workflow_id} ({type_value}) - Status: {status_value}>'
+        return f'<Workflow {self.workflow_id} ({type_value}) for Account {self.website_account_id} - Status: {status_value}>'
 
     def to_dict(self):
         # Method to serialize the object data to a dictionary
@@ -58,9 +67,13 @@ class Workflow(db.Model):
         return {
             'id': self.id,
             'user_id': self.user_id,
+            'website_account_id': self.website_account_id,
             'workflow_id': self.workflow_id,
             'workflow_type': self.workflow_type.value if self.workflow_type else None,
             'workflow_status': self.workflow_status.value if self.workflow_status else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            # Optionally include related object details (be careful of circular references)
+            # 'user': self.user.to_dict() if self.user else None,
+            # 'website_account': self.website_account.to_dict() if self.website_account else None
         }
