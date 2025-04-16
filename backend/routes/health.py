@@ -7,17 +7,13 @@ import sqlite3 # Added for SqliteSerializer
 from SpiffWorkflow.specs.WorkflowSpec import WorkflowSpec
 from SpiffWorkflow.serializer.json import JSONSerializer
 from SpiffWorkflow.workflow import Workflow
-from SpiffWorkflow.exceptions import WorkflowException
 from SpiffWorkflow.spiff.parser import SpiffBpmnParser
-from SpiffWorkflow.spiff.specs.defaults import UserTask, ManualTask
-from SpiffWorkflow.spiff.serializer import DEFAULT_CONFIG
+from SpiffWorkflow.spiff.serializer.config import SPIFF_CONFIG
 from SpiffWorkflow.bpmn import BpmnWorkflow # Added for SqliteSerializer config
 from SpiffWorkflow.bpmn.util.subworkflow import BpmnSubWorkflow # Added for SqliteSerializer config
 from SpiffWorkflow.bpmn.specs import BpmnProcessSpec # Added for SqliteSerializer config
-from SpiffWorkflow.bpmn.specs.mixins.none_task import NoneTask
 from SpiffWorkflow.bpmn.script_engine import TaskDataEnvironment
 # Remove FileSerializer import if no longer needed elsewhere in the file
-# from SpiffWorkflow.spiff.serializer.config import SPIFF_CONFIG
 # from workflows.serializer.file import FileSerializer
 # Add SqliteSerializer imports
 from workflows.serializer.sqlite import (
@@ -227,22 +223,32 @@ def bpmn_check():
     dbname = 'health_check_spiff.db'
 
     try:
-        DEFAULT_CONFIG[BpmnWorkflow] = WorkflowConverter
-        DEFAULT_CONFIG[BpmnSubWorkflow] = SubworkflowConverter
-        DEFAULT_CONFIG[BpmnProcessSpec] = WorkflowSpecConverter
+        SPIFF_CONFIG[BpmnWorkflow] = WorkflowConverter
+        SPIFF_CONFIG[BpmnSubWorkflow] = SubworkflowConverter
+        SPIFF_CONFIG[BpmnProcessSpec] = WorkflowSpecConverter
 
         # Initialize the database schema (important for SQLite)
         with sqlite3.connect(dbname) as db:
             SqliteSerializer.initialize(db)
 
         # Configure and create the serializer instance
-        registry = SqliteSerializer.configure(DEFAULT_CONFIG)
+        registry = SqliteSerializer.configure(SPIFF_CONFIG)
         serializer = SqliteSerializer(dbname, registry=registry)
         # --- End SqliteSerializer Setup ---
 
         parser = SpiffBpmnParser()
 
-        script_env = TaskDataEnvironment({'datetime': datetime })
+        my_input_data = {
+            'user_info': {
+                'name': 'Alice',
+                'email': 'alice@example.com'
+            }
+        }
+
+        script_env = TaskDataEnvironment({
+          'datetime': datetime,
+          'input_data': my_input_data,
+          })
         engine = BpmnEngine(parser, serializer, script_env)
 
         # Add the spec using the engine
@@ -269,13 +275,6 @@ def bpmn_check():
     except Exception as e:
         # Catch any other exceptions during spec loading or workflow execution
         logger.error(f"ERROR [Health Check - BPMN SQLite]: Failed to load or run workflow: {e}", exc_info=True) # Log traceback
-        # Consider removing the temporary db file if you used one
-        # if dbname != ':memory:' and os.path.exists(dbname):
-        #     try:
-        #         os.remove(dbname)
-        #     except OSError as rm_err:
-        #         logger.error(f"Error removing temporary health check db '{dbname}': {rm_err}")
-
         return jsonify({
             'status': 'error',
             'message': 'Workflow check failed (SQLite)',
