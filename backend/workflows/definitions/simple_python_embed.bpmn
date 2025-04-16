@@ -17,7 +17,7 @@ def write_hello_file(file_path):
     try:
         # The file handle 'f' only exists inside this function's scope
         with open(file_path, 'w') as f:
-            f.write(f"Hello from {input_data['user_info']['name']}\n")
+            f.write(f"Hello from {user_info['name']}\n")
         print(f"Successfully wrote to {file_path}") # Optional: confirmation
     except Exception as e:
         print(f"An error occurred while writing to {file_path}: {e}")

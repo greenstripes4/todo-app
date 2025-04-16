@@ -240,14 +240,13 @@ def bpmn_check():
 
         my_input_data = {
             'user_info': {
-                'name': 'Alice',
-                'email': 'alice@example.com'
+                'name': 'John Doe',
+                'email': 'johndoe@example.com'
             }
         }
 
         script_env = TaskDataEnvironment({
-          'datetime': datetime,
-          'input_data': my_input_data,
+          'datetime': datetime
           })
         engine = BpmnEngine(parser, serializer, script_env)
 
@@ -257,6 +256,9 @@ def bpmn_check():
 
         # Start a workflow instance and run it
         workflow_instance = engine.start_workflow(spec_id)
+        start_task = workflow_instance.ready_tasks[0]
+        start_task.data.update(my_input_data)
+        # start_task.data['user_info'] = {'name': 'Alice', 'email': 'alice@example.com'}
         workflow_instance.run_until_user_input_required() # Or workflow_instance.complete() if no user tasks
 
         # Return success response
