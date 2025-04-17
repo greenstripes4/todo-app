@@ -4,7 +4,8 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 # Import joinedload for efficient relationship loading
 from sqlalchemy.orm import joinedload
-from models import User, WebsiteAccount, Workflow, WorkflowTypeEnum, WorkflowStatusEnum
+# Updated model imports
+from models import User, WebsiteAccount, UserWorkflow, UserWorkflowTypeEnum, UserWorkflowStatusEnum
 from app import db, engine, dsar_spec_id
 
 workflow_bp = Blueprint('workflow', __name__, url_prefix='/workflows')
@@ -43,9 +44,9 @@ def create_workflows():
 
     try:
         # Validate and convert workflow_type string to Enum
-        workflow_type_enum = WorkflowTypeEnum(workflow_type_str)
+        workflow_type_enum = UserWorkflowTypeEnum(workflow_type_str) # Updated Enum reference
     except ValueError:
-        valid_types = [e.value for e in WorkflowTypeEnum]
+        valid_types = [e.value for e in UserWorkflowTypeEnum] # Updated Enum reference
         return jsonify({"message": f"Invalid 'workflow_type'. Must be one of: {valid_types}"}), 400
 
     created_workflows_info = []
@@ -77,12 +78,12 @@ def create_workflows():
         unique_workflow_id = workflow_instance.wf_id
 
         # Create the new workflow record
-        new_workflow = Workflow(
+        new_workflow = UserWorkflow( # Updated class reference
             user_id=current_user.id,
             website_account_id=account.id,
             workflow_id=unique_workflow_id,
             workflow_type=workflow_type_enum,
-            workflow_status=WorkflowStatusEnum.PENDING # Default status
+            workflow_status=UserWorkflowStatusEnum.PENDING # Updated Enum reference (Default status)
         )
         db.session.add(new_workflow)
         # We collect info before commit in case the commit fails later
@@ -136,12 +137,12 @@ def get_workflows():
 
     # Query workflows belonging to the current user with pagination
     # Use joinedload to efficiently fetch the related WebsiteAccount
-    paginated_workflows = Workflow.query.options(
-        joinedload(Workflow.website_account) # Eagerly load the relationship
+    paginated_workflows = UserWorkflow.query.options( # Updated class reference
+        joinedload(UserWorkflow.website_account) # Updated class reference
     ).filter(
-        Workflow.user_id == current_user.id
+        UserWorkflow.user_id == current_user.id # Updated class reference
     ).order_by(
-        Workflow.created_at.desc()
+        UserWorkflow.created_at.desc() # Updated class reference
     ).paginate(
         page=page, per_page=per_page, error_out=False
     )
@@ -212,13 +213,13 @@ def update_workflow_status(workflow_instance_id):
 
     try:
         # Validate and convert status string to Enum
-        new_status_enum = WorkflowStatusEnum(new_status_str)
+        new_status_enum = UserWorkflowStatusEnum(new_status_str) # Updated Enum reference
     except ValueError:
-        valid_statuses = [e.value for e in WorkflowStatusEnum]
+        valid_statuses = [e.value for e in UserWorkflowStatusEnum] # Updated Enum reference
         return jsonify({"message": f"Invalid 'status'. Must be one of: {valid_statuses}"}), 400
 
     # --- Find and Authorize Workflow ---
-    workflow = Workflow.query.filter_by(workflow_id=workflow_instance_id).first()
+    workflow = UserWorkflow.query.filter_by(workflow_id=workflow_instance_id).first() # Updated class reference
 
     if not workflow:
         return jsonify({"message": "Workflow not found"}), 404

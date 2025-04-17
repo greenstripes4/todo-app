@@ -1,17 +1,19 @@
-# /config/workspace/todo-app/backend/models/workflow.py
+# /config/workspace/todo-app/backend/models/user_workflow.py
 import datetime
 import enum # Import the enum module
 from app import db
 from sqlalchemy.orm import relationship
 from sqlalchemy import func
-from models import User, WebsiteAccount
+# Import User and WebsiteAccount directly for clarity, though models.__init__ handles it
+from .user import User
+from .website_account import WebsiteAccount
 
 # Define Enums for type safety
-class WorkflowTypeEnum(enum.Enum):
+class UserWorkflowTypeEnum(enum.Enum): # Renamed from WorkflowTypeEnum
     DSAR = "DSAR"
     OD3 = "OD3"
 
-class WorkflowStatusEnum(enum.Enum):
+class UserWorkflowStatusEnum(enum.Enum): # Renamed from WorkflowStatusEnum
     RUNNING = "Running"
     COMPLETED = "Completed"
     TERMINATED = "Terminated"
@@ -20,8 +22,8 @@ class WorkflowStatusEnum(enum.Enum):
     PENDING = "Pending"
     CANCELLED = "Cancelled"
 
-class Workflow(db.Model):
-    __tablename__ = 'workflows'
+class UserWorkflow(db.Model): # Renamed from Workflow
+    __tablename__ = 'userworkflows' # Updated table name
 
     # Primary key (auto-incrementing integer)
     id = db.Column(db.Integer, primary_key=True)
@@ -29,19 +31,17 @@ class Workflow(db.Model):
     # Foreign key linking to the User table (who triggered the workflow)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
-    # --- New Field ---
     # Foreign key linking to the WebsiteAccount table (which account the workflow is for)
     website_account_id = db.Column(db.Integer, db.ForeignKey('website_accounts.id'), nullable=False, index=True)
-    # --- End New Field ---
 
     # Unique identifier for the workflow instance (e.g., could be a UUID string)
     workflow_id = db.Column(db.String(128), unique=True, nullable=False, index=True)
 
     # Type of the workflow using Enum
-    workflow_type = db.Column(db.Enum(WorkflowTypeEnum), nullable=False)
+    workflow_type = db.Column(db.Enum(UserWorkflowTypeEnum), nullable=False) # Updated Enum reference
 
     # Status of the workflow using Enum
-    workflow_status = db.Column(db.Enum(WorkflowStatusEnum), nullable=False, default=WorkflowStatusEnum.PENDING, index=True)
+    workflow_status = db.Column(db.Enum(UserWorkflowStatusEnum), nullable=False, default=UserWorkflowStatusEnum.PENDING, index=True) # Updated Enum reference
 
     # Timestamp when the workflow record was created
     created_at = db.Column(db.DateTime, nullable=False, server_default=func.now())
@@ -50,16 +50,19 @@ class Workflow(db.Model):
     updated_at = db.Column(db.DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
 
     # Define the relationship to the User model
-    user = relationship('User', backref=db.backref('workflows', lazy=True))
+    # Updated backref name to 'user_workflows'
+    user = relationship('User', backref=db.backref('user_workflows', lazy=True))
 
     # Define the relationship to the WebsiteAccount model
-    website_account = relationship('WebsiteAccount', backref=db.backref('workflows', lazy=True))
+    # Updated backref name to 'user_workflows'
+    website_account = relationship('WebsiteAccount', backref=db.backref('user_workflows', lazy=True))
 
     def __repr__(self):
         # Helpful representation for debugging, showing the enum value and website account ID
         type_value = self.workflow_type.value if self.workflow_type else 'None'
         status_value = self.workflow_status.value if self.workflow_status else 'None'
-        return f'<Workflow {self.workflow_id} ({type_value}) for Account {self.website_account_id} - Status: {status_value}>'
+        # Updated class name in the representation string
+        return f'<UserWorkflow {self.workflow_id} ({type_value}) for Account {self.website_account_id} - Status: {status_value}>'
 
     def to_dict(self):
         # Method to serialize the object data to a dictionary
