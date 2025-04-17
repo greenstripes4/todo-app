@@ -59,7 +59,7 @@ parser = SpiffBpmnParser()
 
 script_env = TaskDataEnvironment({'datetime': datetime })
 engine = BpmnEngine(parser, serializer, script_env)
-engine.add_spec('Process_DSAR_Request', BPMN_FILE_PATHS, None)
+dsar_spec_id = engine.add_spec('Process_DSAR_Request', BPMN_FILE_PATHS, None)
 
 # Import the User model from the models package
 from models.user import User

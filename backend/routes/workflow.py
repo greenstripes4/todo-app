@@ -2,8 +2,10 @@
 import uuid
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
+# Import joinedload for efficient relationship loading
+from sqlalchemy.orm import joinedload
 from models import User, WebsiteAccount, Workflow, WorkflowTypeEnum, WorkflowStatusEnum
-from app import db
+from app import db, engine, dsar_spec_id
 
 workflow_bp = Blueprint('workflow', __name__, url_prefix='/workflows')
 
@@ -67,8 +69,12 @@ def create_workflows():
             errors.append({"account_id": account_id, "error": "Forbidden: You do not own this website account"})
             continue
 
-        # Generate a unique ID for the workflow instance
-        unique_workflow_id = str(uuid.uuid4())
+        # Start a workflow instance and run it
+        workflow_instance = engine.start_workflow(dsar_spec_id)
+        start_task = workflow_instance.ready_tasks[0]
+        start_task.data['user_info'] = {'name': account.account_name, 'email': account.account_email}
+        workflow_instance.run_until_user_input_required() # Or workflow_instance.complete() if no user tasks
+        unique_workflow_id = workflow_instance.wf_id
 
         # Create the new workflow record
         new_workflow = Workflow(
@@ -113,7 +119,8 @@ def create_workflows():
 @jwt_required()
 def get_workflows():
     """
-    Retrieves all workflows created by the currently logged-in user.
+    Retrieves all workflows created by the currently logged-in user,
+    including associated website account details.
     Supports pagination via query parameters 'page' and 'per_page'.
     """
     current_user_username = get_jwt_identity()
@@ -128,10 +135,42 @@ def get_workflows():
     per_page = request.args.get('per_page', 10, type=int) # Default 10 per page
 
     # Query workflows belonging to the current user with pagination
-    paginated_workflows = Workflow.query.filter_by(user_id=current_user.id).order_by(Workflow.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    # Use joinedload to efficiently fetch the related WebsiteAccount
+    paginated_workflows = Workflow.query.options(
+        joinedload(Workflow.website_account) # Eagerly load the relationship
+    ).filter(
+        Workflow.user_id == current_user.id
+    ).order_by(
+        Workflow.created_at.desc()
+    ).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
 
-    # Serialize the workflow objects
-    workflows_list = [workflow.to_dict() for workflow in paginated_workflows.items]
+    # Serialize the workflow objects, including website account details
+    workflows_list = []
+    for workflow in paginated_workflows.items:
+        workflow_data = workflow.to_dict() # Assuming this returns basic workflow info
+
+        # Add website account data if it exists
+        if workflow.website_account:
+            # Assuming WebsiteAccount has a to_dict() method or relevant attributes
+            # If WebsiteAccount has a to_dict():
+            # workflow_data['website_account'] = workflow.website_account.to_dict()
+
+            # Or manually construct the dictionary:
+            workflow_data['website_account'] = {
+                'id': workflow.website_account.id,
+                'website_url': getattr(workflow.website_account, 'website_url', None), # Use getattr for safety if unsure
+                'account_name': getattr(workflow.website_account, 'account_name', None),
+                'account_email': getattr(workflow.website_account, 'account_email', None),
+                # Add any other relevant fields from WebsiteAccount model
+            }
+        else:
+            # Handle cases where the account might somehow be null
+            workflow_data['website_account'] = None
+
+        workflows_list.append(workflow_data)
+
 
     # Prepare pagination metadata for the response
     pagination_metadata = {

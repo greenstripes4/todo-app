@@ -23,19 +23,13 @@ Can be aborted via an 'AbortDSARMessage'.</bpmn:documentation>
       <bpmn:outgoing>Flow_To_ValidateInput</bpmn:outgoing>
     </bpmn:startEvent>
 
-    <!-- Data Object Reference for Input JSON -->
-    <bpmn:dataObjectReference id="DataObjectRef_InputJson" name="DSAR Input Data" dataObjectRef="DataObject_InputJson" />
-    <bpmn:dataObject id="DataObject_InputJson" />
+    <!-- Removed Data Object References and Data Objects -->
 
     <bpmn:task id="Task_ValidateInput" name="Validate Input Data">
       <bpmn:documentation>Check if all required fields in the input JSON are present and valid.</bpmn:documentation>
       <bpmn:incoming>Flow_To_ValidateInput</bpmn:incoming>
       <bpmn:outgoing>Flow_To_FormulateRequest</bpmn:outgoing>
-      <bpmn:property id="Property_InputJson" name="__targetRef_placeholder" />
-      <bpmn:dataInputAssociation id="DataInputAssoc_Validate">
-        <bpmn:sourceRef>DataObjectRef_InputJson</bpmn:sourceRef>
-        <bpmn:targetRef>Property_InputJson</bpmn:targetRef>
-      </bpmn:dataInputAssociation>
+      <!-- Removed Property and Data Input Association -->
     </bpmn:task>
 
     <bpmn:sequenceFlow id="Flow_To_ValidateInput" sourceRef="StartEvent_RequestReceived" targetRef="Task_ValidateInput" />
@@ -75,19 +69,13 @@ Can be aborted via an 'AbortDSARMessage'.</bpmn:documentation>
 
     <bpmn:sequenceFlow id="Flow_To_CheckAndReceive" sourceRef="Event_WaitForResponse" targetRef="Task_CheckAndReceiveData" />
 
-    <!-- Data Object Reference for Output File -->
-    <bpmn:dataObjectReference id="DataObjectRef_OutputFile" name="Retrieved User Data File" dataObjectRef="DataObject_OutputFile" />
-    <bpmn:dataObject id="DataObject_OutputFile" />
+    <!-- Removed Data Object References and Data Objects -->
 
     <bpmn:task id="Task_StoreFile" name="Store Received File">
        <bpmn:documentation>Save the retrieved user data file to the location specified in the input JSON.</bpmn:documentation>
       <bpmn:incoming>Flow_To_StoreFile</bpmn:incoming>
       <bpmn:outgoing>Flow_To_End</bpmn:outgoing>
-      <bpmn:property id="Property_OutputFile" name="__targetRef_placeholder" />
-      <bpmn:dataOutputAssociation id="DataOutputAssoc_Store">
-        <bpmn:sourceRef>Property_OutputFile</bpmn:sourceRef> <!-- Represents the file data handled by the task -->
-        <bpmn:targetRef>DataObjectRef_OutputFile</bpmn:targetRef>
-      </bpmn:dataOutputAssociation>
+      <!-- Removed Property and Data Output Association -->
     </bpmn:task>
 
     <bpmn:sequenceFlow id="Flow_To_StoreFile" sourceRef="Task_CheckAndReceiveData" targetRef="Task_StoreFile" />
@@ -157,18 +145,7 @@ Can be aborted via an 'AbortDSARMessage'.</bpmn:documentation>
           <dc:Bounds x="1149" y="202" width="82" height="27" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_DataObjectRef_InputJson" bpmnElement="DataObjectRef_InputJson">
-        <dc:Bounds x="232" y="255" width="36" height="50" />
-        <bpmndi:BPMNLabel>
-          <dc:Bounds x="211" y="312" width="78" height="14" />
-        </bpmndi:BPMNLabel>
-      </bpmndi:BPMNShape>
-       <bpmndi:BPMNShape id="Shape_DataObjectRef_OutputFile" bpmnElement="DataObjectRef_OutputFile">
-        <dc:Bounds x="1042" y="255" width="36" height="50" />
-        <bpmndi:BPMNLabel>
-          <dc:Bounds x="1007" y="312" width="107" height="27" />
-        </bpmndi:BPMNLabel>
-      </bpmndi:BPMNShape>
+      <!-- Removed Data Object Shapes -->
 
       <!-- Added Shapes for Abort Path -->
       <bpmndi:BPMNShape id="Shape_Event_AbortRequested" bpmnElement="Event_AbortRequested">
@@ -213,15 +190,7 @@ Can be aborted via an 'AbortDSARMessage'.</bpmn:documentation>
         <di:waypoint x="1110" y="177" />
         <di:waypoint x="1172" y="177" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_DataInputAssoc_Validate" bpmnElement="DataInputAssoc_Validate">
-        <di:waypoint x="250" y="255" />
-        <di:waypoint x="250" y="197" /> <!-- Adjusted y slightly for clarity -->
-        <di:waypoint x="270" y="197" /> <!-- Adjusted y slightly for clarity -->
-      </bpmndi:BPMNEdge>
-       <bpmndi:BPMNEdge id="Edge_DataOutputAssoc_Store" bpmnElement="DataOutputAssoc_Store">
-        <di:waypoint x="1060" y="217" />
-        <di:waypoint x="1060" y="255" />
-      </bpmndi:BPMNEdge>
+      <!-- Removed Data Association Edges -->
 
       <!-- Added Edge for Abort Path -->
       <bpmndi:BPMNEdge id="Edge_Flow_To_Terminate" bpmnElement="Flow_To_Terminate">
