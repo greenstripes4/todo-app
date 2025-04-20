@@ -5,6 +5,7 @@ import json # Keep json for potential direct use, though SQLAlchemy handles much
 
 from SpiffWorkflow.bpmn.serializer.workflow import BpmnWorkflowSerializer
 from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
+from SpiffWorkflow import TaskState
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func # Import func for potential use, though models use it
 
@@ -14,6 +15,8 @@ from models.instance import Instance
 from models.workflow import Workflow, Task # Task needed for subprocess logic and instance update
 # Removed TaskData, WorkflowData as they aren't directly used in the serializer logic shown
 from models.workflow_spec import WorkflowSpec, TaskSpec, SpecDependency
+# --- Import UserWorkflow model and Enum ---
+from models.user_workflow import UserWorkflow, UserWorkflowStatusEnum # Make sure DELETED is in this Enum
 
 logger = logging.getLogger(__name__)
 
@@ -133,8 +136,6 @@ class SqlSerializer(BpmnWorkflowSerializer):
             if not spec_obj:
                 logger.warning(f"WorkflowSpec with id {spec_id} not found.")
                 return None, {} # Or raise an error
-            logger.info(f"get workflow spec {spec_id}:")
-            logger.info(spec_obj.serialization)
 
             spec = self.from_dict(spec_obj.serialization) # Use appropriate converter
             subprocess_specs = {}
@@ -241,18 +242,32 @@ class SqlSerializer(BpmnWorkflowSerializer):
                     sp_wf = Workflow(id=sp_wf_id, workflow_spec_id=sp_spec_id, serialization=sp_dct)
                     self.db.session.add(sp_wf)
                     logger.info(f"Creating Subprocess Workflow ID: {sp_wf_id} (Task ID) for Spec ID: {sp_spec_id}")
-
-
+            
             # Create the associated Instance record
             # The Instance ID must match the Workflow ID
+
+            ## [TODO: Workaround for workflow.get_tasks(TaskState.READY) cannot be called here]
+            # Manually count tasks with state value 16, TaskState.READY
+            tasks_with_state_ready = 0
+            all_tasks = workflow.get_tasks() # Get all tasks
+            for task in all_tasks:
+                if isinstance(task.state, TaskState) and task.state == TaskState.READY:
+                    tasks_with_state_ready += 1
+                elif isinstance(task.state, int) and task.state == TaskState.READY:
+                    tasks_with_state_ready += 1
+            logger.info(f"[Hongda] {tasks_with_state_ready} tasks are ready.")
+
             instance = Instance(
                 id=wf_id, # Use the same ID as the Workflow
                 spec_name=spec_obj.serialization.get('name', 'Unknown'), # Get name from spec serialization
-                # active_tasks=len(workflow.ready_tasks), # Calculate ready tasks
+                # Calculate initial ready tasks for the instance record
+                active_tasks=tasks_with_state_ready, # len(workflow.get_tasks(TaskState.READY)),
                 # started is server_default
             )
             self.db.session.add(instance)
             logger.info(f"Creating Instance record for Workflow ID: {wf_id}")
+
+            # --- UserWorkflow creation removed from here ---
 
             self.db.session.commit()
             logger.info(f"Committed creation for Workflow ID: {wf_id}")
@@ -331,12 +346,14 @@ class SqlSerializer(BpmnWorkflowSerializer):
             raise
 
     def update_workflow(self, workflow, wf_id=None):
+
         """Updates a workflow instance and its subprocesses."""
         if wf_id is None:
             wf_id = workflow.id # Get ID from workflow object if not passed
         # Ensure wf_id is UUID
         wf_id = UUID(str(wf_id)) if not isinstance(wf_id, UUID) else wf_id
-
+        # Convert UUID to string for UserWorkflow lookup
+        wf_id_str = str(wf_id)
         try:
             # --- Update Main Workflow ---
             wf_obj = Workflow.query.get(wf_id)
@@ -386,20 +403,15 @@ class SqlSerializer(BpmnWorkflowSerializer):
             # --- Update Instance Record ---
             instance_obj = Instance.query.get(wf_id)
             if instance_obj:
-                # Use SpiffWorkflow's Task state enum if available, otherwise use strings/numbers
-                # Assuming Task.READY exists or is defined elsewhere (e.g., from SpiffWorkflow.Task import State)
-                try:
-                    from SpiffWorkflow.Task import State as TaskState
-                    instance_obj.active_tasks = len(workflow.get_tasks(TaskState.READY))
-                except ImportError:
-                     # Fallback if State enum isn't easily available here
-                     instance_obj.active_tasks = len(workflow.ready_tasks)
-
+                # Update active tasks count based on READY state
+                instance_obj.active_tasks = len(workflow.get_tasks(TaskState.READY))
                 # Check if the workflow object has a completion timestamp attribute
                 if hasattr(workflow, 'completed_at') and workflow.completed_at:
                     instance_obj.ended = workflow.completed_at
                 elif workflow.is_completed(): # Check completion status otherwise
                     instance_obj.ended = db.func.now() # Set end time if completed now
+                else:
+                    instance_obj.ended = None # Ensure ended is null if not completed
 
                 # 'updated' column updates automatically via onupdate
                 logger.debug(f"Updating Instance {wf_id} record.")
@@ -411,6 +423,45 @@ class SqlSerializer(BpmnWorkflowSerializer):
                 # instance = Instance(...)
                 # self.db.session.add(instance)
 
+            # --- Update UserWorkflow Record ---
+            user_workflow = UserWorkflow.query.filter_by(workflow_id=wf_id_str).first()
+            if user_workflow:
+                if workflow.is_completed():
+                    logger.info(f"Workflow {wf_id_str} completed. Updating UserWorkflow.")
+                    if workflow.success:
+                        user_workflow.workflow_status = UserWorkflowStatusEnum.COMPLETED
+                    else:
+                        user_workflow.workflow_status = UserWorkflowStatusEnum.FAILED
+                    user_workflow.active_tasks = [] # Clear active tasks on completion
+                else:
+                    # Check if the status is already one of the terminal states before setting to RUNNING
+                    terminal_statuses = {
+                        UserWorkflowStatusEnum.TERMINATED,
+                        UserWorkflowStatusEnum.FAILED,
+                        UserWorkflowStatusEnum.CANCELLED,
+                        UserWorkflowStatusEnum.DELETED
+                    }
+                    if user_workflow.workflow_status not in terminal_statuses:
+                        logger.info(f"Workflow {wf_id_str} is running. Updating UserWorkflow.")
+                        user_workflow.workflow_status = UserWorkflowStatusEnum.RUNNING
+                        # Use TaskState.STARTED directly
+                        started_tasks = [
+                            task.get_name() for task in workflow.get_tasks(state=TaskState.STARTED)
+                        ]
+                        user_workflow.active_tasks = started_tasks
+                        logger.debug(f"Setting active_tasks for {wf_id_str} to: {started_tasks}")
+                    else:
+                         logger.info(f"Workflow {wf_id_str} is in a terminal state ({user_workflow.workflow_status.value}). Skipping status update to RUNNING.")
+                         # Decide if active_tasks should be cleared or kept in terminal states other than COMPLETED/DELETED
+                         # user_workflow.active_tasks = [] # Optionally clear here too
+
+
+                # Add to session to ensure changes are tracked
+                self.db.session.add(user_workflow)
+            else:
+                logger.warning(f"UserWorkflow record for workflow_id {wf_id_str} not found during update.")
+                # Consider if you need to create it here if it might be missing,
+                # though typically it should exist if created by `create_workflow` or another process.
 
             self.db.session.commit()
             logger.info(f"Committed update for Workflow ID: {wf_id}")
@@ -445,50 +496,38 @@ class SqlSerializer(BpmnWorkflowSerializer):
             raise
 
     def delete_workflow(self, wf_id):
-        """Deletes a workflow instance and its related data (including subprocesses via cascade)."""
+        """
+        Deletes a workflow instance and its related SpiffWorkflow data (via cascade),
+        and updates the corresponding UserWorkflow record status to DELETED.
+        """
         # Ensure wf_id is UUID
         wf_id = UUID(str(wf_id)) if not isinstance(wf_id, UUID) else wf_id
+        wf_id_str = str(wf_id) # For UserWorkflow lookup
+
         try:
             wf_obj = Workflow.query.get(wf_id)
             if not wf_obj:
                 logger.warning(f"Workflow {wf_id} not found for deletion.")
                 return False # Indicate not found
 
-            # Deleting the main Workflow object should trigger cascades defined in the models:
-            # - Workflow -> Instance (one-to-one, cascade='all, delete-orphan')
-            # - Workflow -> Task (one-to-many, cascade='all, delete-orphan', lazy='dynamic')
-            # - Workflow -> WorkflowData (one-to-many, cascade='all, delete-orphan', lazy='dynamic')
-            # - Task -> TaskData (one-to-many, cascade='all, delete-orphan', lazy='dynamic')
+            # --- Update UserWorkflow Record Status ---
+            user_workflow = UserWorkflow.query.filter_by(workflow_id=wf_id_str).first()
+            if user_workflow:
+                logger.info(f"Marking UserWorkflow record for workflow_id {wf_id_str} as DELETED.")
+                user_workflow.workflow_status = UserWorkflowStatusEnum.DELETED
+                user_workflow.active_tasks = []
+                self.db.session.add(user_workflow) # Ensure the update is tracked
+            else:
+                 logger.warning(f"UserWorkflow record for workflow_id {wf_id_str} not found during deletion/update.")
 
-            # IMPORTANT: This also deletes subprocess Workflow records IF they are linked
-            # via a cascading relationship (which they currently aren't directly).
-            # The deletion of the parent workflow's Tasks might be enough if subprocesses
-            # are always tied to a task lifecycle. However, explicit deletion of
-            # subprocess Workflow records might be safer if their lifecycle is independent.
-
-            # Let's find subprocess workflow IDs based on tasks in the main workflow *before* deleting it.
-            # Deserialize briefly to find subworkflow tasks if needed, or query Task table directly.
-            # Simpler approach: Assume subprocess workflow IDs are stored as Task IDs.
-            # Query Tasks associated with the main workflow first.
-            subproc_task_ids = []
-            # Access tasks via the relationship (use .all() if lazy='dynamic')
-            for task in wf_obj.tasks.all():
-                # Need to deserialize task spec to check type, which is inefficient here.
-                # Alternative: Add a flag to Task model or rely on naming convention?
-                # For now, let's assume we need to delete subprocess Workflows explicitly if they exist.
-                # Query Workflow table for IDs that might be subprocesses (this is tricky without a direct link)
-                # A better approach would be a direct relationship or a clear convention.
-                # Let's rely on cascade for now and refine if needed.
-                pass # Placeholder for potential explicit subprocess deletion logic
-
-
-            logger.info(f"Deleting Workflow {wf_id} and associated data via cascade.")
+            # --- Delete Main Workflow and Cascade SpiffWorkflow Data ---
+            # Deleting the main Workflow object should trigger cascades defined in the models
+            # for related SpiffWorkflow entities like Instance, Task, TaskData, WorkflowData.
+            logger.info(f"Deleting Workflow {wf_id} and associated SpiffWorkflow data via cascade.")
             self.db.session.delete(wf_obj)
-            # Cascades should handle Instance, Tasks, TaskData, WorkflowData.
-            # If subprocess Workflows need explicit deletion, add that logic here before commit.
 
             self.db.session.commit()
-            logger.info(f"Committed deletion for Workflow ID: {wf_id}")
+            logger.info(f"Committed deletion for Workflow ID: {wf_id} and updated UserWorkflow status.")
             return True # Indicate success
         except Exception as e:
             self.db.session.rollback()
@@ -497,4 +536,3 @@ class SqlSerializer(BpmnWorkflowSerializer):
 
     # Remove the execute method - session management is handled in each public method
     # def execute(self, func, *args, **kwargs): ...
-

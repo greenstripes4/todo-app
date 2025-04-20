@@ -4,6 +4,7 @@ import datetime
 import logging
 import sys
 import os
+from SpiffWorkflow import TaskState
 from SpiffWorkflow.specs.WorkflowSpec import WorkflowSpec
 from SpiffWorkflow.serializer.json import JSONSerializer
 from SpiffWorkflow.workflow import Workflow
@@ -205,6 +206,9 @@ def bpmn_check():
         workflow_instance = engine.start_workflow(spec_id)
         start_task = workflow_instance.ready_tasks[0]
         start_task.data.update(my_input_data)
+
+        cnt = len(workflow_instance.workflow.get_tasks(state=TaskState.READY))
+        logger.info(f"We have {cnt} ready tasks.")
 
         # Run the workflow to completion
         workflow_instance.run_until_user_input_required()

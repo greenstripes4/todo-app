@@ -27,9 +27,10 @@
             <th>Website URL</th>
             <th>Type</th>
             <th>Status</th>
+            <th>Active Tasks</th> <!-- Added Active Tasks Header -->
             <th>Created At</th>
             <th>Updated At</th>
-            <th>Actions</th> <!-- Added Actions Header -->
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -38,9 +39,14 @@
             <td>{{ workflow.website_account?.website_url || 'N/A' }}</td>
             <td>{{ workflow.workflow_type }}</td>
             <td>
-              <span :class="['status-badge', `status-${workflow.workflow_status?.toLowerCase()}`]">
+              <!-- Updated class binding for status badges -->
+              <span :class="['status-badge', `status-${workflow.workflow_status?.toLowerCase().replace('_', '-')}`]">
                 {{ workflow.workflow_status }}
               </span>
+            </td>
+            <!-- Display Active Tasks -->
+            <td>
+              {{ formatActiveTasks(workflow.active_tasks) }}
             </td>
             <td>{{ formatDateTime(workflow.created_at) }}</td>
             <td>{{ formatDateTime(workflow.updated_at) }}</td>
@@ -71,7 +77,7 @@
 import { ref, reactive, onMounted } from 'vue';
 
 const workflows = ref([]);
-const pagination = ref(null);
+const pagination = ref(null); // Initialize pagination state
 const isLoading = ref(true);
 const fetchError = ref(null);
 const actionMessage = ref(''); // For showing success/error after action
@@ -92,11 +98,22 @@ const formatDateTime = (dateTimeString) => {
   }
 };
 
+// --- NEW HELPER: Format Active Tasks ---
+const formatActiveTasks = (tasks) => {
+  if (!tasks || tasks.length === 0) {
+    return 'None'; // Or '-' or empty string
+  }
+  // Join the array of task names into a comma-separated string
+  return tasks.join(', ');
+};
+
+
 // Helper function to check if a workflow status allows termination
 const isTerminable = (status) => {
-  // Enable button for 'PENDING' and 'IN_PROGRESS' statuses
-  // Based on backend WorkflowStatusEnum: PENDING, IN_PROGRESS, COMPLETED, FAILED, CANCELLED
-  return ['PENDING', 'RUNNING', 'SUSPENDED'].includes(status?.toUpperCase());
+  // Enable button for statuses that are not final
+  // Based on backend UserWorkflowStatusEnum
+  const terminalStatuses = ['COMPLETED', 'FAILED', 'CANCELLED', 'TERMINATED', 'DELETED'];
+  return !terminalStatuses.includes(status?.toUpperCase());
 };
 
 // Function to clear action messages after a delay
@@ -107,7 +124,7 @@ const clearActionMessage = () => {
   }, 5000); // Clear after 5 seconds
 };
 
-const fetchWorkflows = async () => {
+const fetchWorkflows = async (page = 1, perPage = 10) => { // Add parameters for pagination
   isLoading.value = true;
   fetchError.value = null;
   actionMessage.value = ''; // Clear previous action messages on refresh
@@ -117,8 +134,12 @@ const fetchWorkflows = async () => {
     if (!token) {
       throw new Error('Authentication token not found. Please log in.');
     }
-    const url = `${API_ENDPOINT}/workflows`; // Add pagination params if needed
-    const response = await fetch(url, {
+    // Construct URL with pagination parameters
+    const url = new URL(`${API_ENDPOINT}/workflows`);
+    url.searchParams.append('page', page);
+    url.searchParams.append('per_page', perPage);
+
+    const response = await fetch(url.toString(), { // Use url.toString()
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -137,19 +158,19 @@ const fetchWorkflows = async () => {
 
     const data = await response.json();
     workflows.value = data.workflows || [];
-    pagination.value = data.pagination || null;
+    pagination.value = data.pagination || null; // Store pagination metadata
 
   } catch (err) {
     console.error("Error fetching workflows:", err);
     fetchError.value = err.message || 'An unexpected error occurred while fetching workflows.';
     workflows.value = [];
-    pagination.value = null;
+    pagination.value = null; // Reset pagination on error
   } finally {
     isLoading.value = false;
   }
 };
 
-// --- NEW METHOD: Terminate Workflow ---
+// --- METHOD: Terminate Workflow ---
 const terminateWorkflow = async (workflowId) => {
   if (!workflowId) return;
 
@@ -192,12 +213,11 @@ const terminateWorkflow = async (workflowId) => {
     if (index !== -1 && updatedWorkflowData.workflow) {
        // Update the specific workflow in the array
        workflows.value[index] = { ...workflows.value[index], ...updatedWorkflowData.workflow };
-       // Or more simply if the API returns the full updated object:
-       // workflows.value[index] = updatedWorkflowData.workflow;
     } else {
         // Fallback: Refetch all workflows if local update fails
         console.warn("Could not find workflow locally to update, refetching list.");
-        await fetchWorkflows();
+        // Refetch current page
+        await fetchWorkflows(pagination.value?.current_page || 1, pagination.value?.per_page || 10);
     }
 
     actionMessage.value = `Workflow ${workflowId} terminated successfully.`;
@@ -214,14 +234,14 @@ const terminateWorkflow = async (workflowId) => {
   }
 };
 
-// Fetch workflows when the component is mounted
+// Fetch workflows when the component is mounted (fetch first page)
 onMounted(() => {
   fetchWorkflows();
 });
 </script>
 
 <style scoped>
-/* Add styles from the previous version if they are not here */
+/* Styles are kept as they were in the provided context */
 .user-workflows-view {
   padding: 20px;
 }
@@ -302,13 +322,21 @@ td:last-child {
   color: white;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  display: inline-block; /* Added for consistency */
+  line-height: 1.2; /* Added for consistency */
 }
 
+/* Original status colors + new ones */
 .status-pending { background-color: #ffc107; color: #333; }
-.status-in_progress { background-color: #007bff; }
+.status-running { background-color: #17a2b8; } /* Added Running */
+.status-suspended { background-color: #fd7e14; } /* Added Suspended */
 .status-completed { background-color: #28a745; }
 .status-failed { background-color: #dc3545; }
-.status-cancelled { background-color: #6c757d; } /* Style for terminated/cancelled */
+.status-terminated { background-color: #6c757d; } /* Added Terminated */
+.status-cancelled { background-color: #6c757d; }
+.status-deleted { background-color: #343a40; } /* Added Deleted */
+/* Note: .status-in_progress is removed as backend uses RUNNING */
+
 
 .pagination-info {
     margin-top: 15px;
@@ -326,6 +354,7 @@ td:last-child {
   font-size: 0.9em;
   transition: background-color 0.2s ease;
   margin: 0 2px; /* Add small margin between buttons if needed */
+  vertical-align: middle; /* Added for consistency */
 }
 
 .terminate-button {
