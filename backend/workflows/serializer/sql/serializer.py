@@ -199,6 +199,24 @@ class SqlSerializer(BpmnWorkflowSerializer):
 
     # --- Workflow Instance Methods ---
 
+    # --- NEW HELPER METHOD ---
+    def _count_ready_tasks(self, workflow):
+        """Counts tasks in the READY state within a workflow object."""
+        # Manually count tasks with state value 16 (TaskState.READY)
+        # This handles cases where the state might be an int or a TaskState enum
+        tasks_with_state_ready = 0
+        # Fallback to manual iteration if get_tasks fails or is unreliable here
+        # logger.warning(f"get_tasks(TaskState.READY) cannot work in SqlSerializer, falling back to manual count.")
+        all_tasks = workflow.get_tasks() # Get all tasks
+        for task in all_tasks:
+            # Check both TaskState enum and integer value for robustness
+            if (isinstance(task.state, TaskState) and task.state == TaskState.READY) or \
+                (isinstance(task.state, int) and task.state == TaskState.READY): # [TODO] 'int' object has no attribute 'value' for TaskState.READY.value here
+                tasks_with_state_ready += 1
+        # tasks_with_state_ready = len(workflow.get_tasks(TaskState.READY))
+        return tasks_with_state_ready
+    # --- END NEW HELPER METHOD ---
+
     def create_workflow(self, workflow, spec_id):
         """Creates a new workflow instance and its subprocesses."""
         try:
@@ -242,26 +260,19 @@ class SqlSerializer(BpmnWorkflowSerializer):
                     sp_wf = Workflow(id=sp_wf_id, workflow_spec_id=sp_spec_id, serialization=sp_dct)
                     self.db.session.add(sp_wf)
                     logger.info(f"Creating Subprocess Workflow ID: {sp_wf_id} (Task ID) for Spec ID: {sp_spec_id}")
-            
+
             # Create the associated Instance record
             # The Instance ID must match the Workflow ID
 
-            ## [TODO: Workaround for workflow.get_tasks(TaskState.READY) cannot be called here]
-            # Manually count tasks with state value 16, TaskState.READY
-            tasks_with_state_ready = 0
-            all_tasks = workflow.get_tasks() # Get all tasks
-            for task in all_tasks:
-                if isinstance(task.state, TaskState) and task.state == TaskState.READY:
-                    tasks_with_state_ready += 1
-                elif isinstance(task.state, int) and task.state == TaskState.READY:
-                    tasks_with_state_ready += 1
-            logger.info(f"[Hongda] {tasks_with_state_ready} tasks are ready.")
+            # Use the helper method to count ready tasks
+            initial_ready_tasks = self._count_ready_tasks(workflow)
+            logger.info(f"Initial ready task count: {initial_ready_tasks}")
 
             instance = Instance(
                 id=wf_id, # Use the same ID as the Workflow
                 spec_name=spec_obj.serialization.get('name', 'Unknown'), # Get name from spec serialization
-                # Calculate initial ready tasks for the instance record
-                active_tasks=tasks_with_state_ready, # len(workflow.get_tasks(TaskState.READY)),
+                # Calculate initial ready tasks for the instance record using the helper
+                active_tasks=initial_ready_tasks,
                 # started is server_default
             )
             self.db.session.add(instance)
@@ -403,8 +414,8 @@ class SqlSerializer(BpmnWorkflowSerializer):
             # --- Update Instance Record ---
             instance_obj = Instance.query.get(wf_id)
             if instance_obj:
-                # Update active tasks count based on READY state
-                instance_obj.active_tasks = len(workflow.get_tasks(TaskState.READY))
+                # Update active tasks count based on READY state using the helper
+                instance_obj.active_tasks = self._count_ready_tasks(workflow)
                 # Check if the workflow object has a completion timestamp attribute
                 if hasattr(workflow, 'completed_at') and workflow.completed_at:
                     instance_obj.ended = workflow.completed_at
@@ -444,9 +455,9 @@ class SqlSerializer(BpmnWorkflowSerializer):
                     if user_workflow.workflow_status not in terminal_statuses:
                         logger.info(f"Workflow {wf_id_str} is running. Updating UserWorkflow.")
                         user_workflow.workflow_status = UserWorkflowStatusEnum.RUNNING
-                        # Use TaskState.STARTED directly
+                        # Use TaskState.READY instead of STARTED directly
                         started_tasks = [
-                            task.get_name() for task in workflow.get_tasks(state=TaskState.STARTED)
+                            task.task_spec.name for task in workflow.get_tasks(state=TaskState.READY)
                         ]
                         user_workflow.active_tasks = started_tasks
                         logger.debug(f"Setting active_tasks for {wf_id_str} to: {started_tasks}")

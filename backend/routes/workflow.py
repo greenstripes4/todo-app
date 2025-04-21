@@ -5,8 +5,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 # Import joinedload for efficient relationship loading
 from sqlalchemy.orm import joinedload
 # Updated model imports
-from models import User, WebsiteAccount, UserWorkflow, UserWorkflowTypeEnum, UserWorkflowStatusEnum
-from app import db, engine, dsar_spec_id
+from models import User, WebsiteAccount, UserWorkflow, UserWorkflowTypeEnum, UserWorkflowStatusEnum # Updated class reference
+from app import db, engine, dsar_spec_id # Make sure dsar_spec_id is correctly imported/available
 
 workflow_bp = Blueprint('workflow', __name__, url_prefix='/workflows')
 
@@ -25,7 +25,6 @@ def create_workflows():
     current_user = User.query.filter_by(username=current_user_username).first()
 
     if not current_user:
-        # Should not happen with @jwt_required, but good practice
         return jsonify({"message": "Current user not found"}), 404
 
     data = request.get_json()
@@ -43,7 +42,6 @@ def create_workflows():
         return jsonify({"message": "'workflow_type' is required"}), 400
 
     try:
-        # Validate and convert workflow_type string to Enum
         workflow_type_enum = UserWorkflowTypeEnum(workflow_type_str) # Updated Enum reference
     except ValueError:
         valid_types = [e.value for e in UserWorkflowTypeEnum] # Updated Enum reference
@@ -51,71 +49,91 @@ def create_workflows():
 
     created_workflows_info = []
     errors = []
+    workflows_to_commit = [] # Keep track of UserWorkflow objects to commit
 
     # --- Process each account ID ---
     for account_id in website_account_ids:
         if not isinstance(account_id, int):
             errors.append({"account_id": account_id, "error": "ID must be an integer"})
-            continue # Skip to the next ID
+            continue
 
-        # Find the website account
         account = WebsiteAccount.query.get(account_id)
 
-        # Check if account exists and belongs to the current user
         if not account:
             errors.append({"account_id": account_id, "error": "Website account not found"})
             continue
         if account.user_id != current_user.id:
-            # Security check: User can only create workflows for their own accounts
             errors.append({"account_id": account_id, "error": "Forbidden: You do not own this website account"})
             continue
 
-        # Start a workflow instance and run it
-        workflow_instance = engine.start_workflow(dsar_spec_id)
-        start_task = workflow_instance.ready_tasks[0]
-        start_task.data['user_info'] = {'name': account.account_name, 'email': account.account_email}
-        workflow_instance.run_until_user_input_required() # Or workflow_instance.complete() if no user tasks
-        unique_workflow_id = workflow_instance.wf_id
+        try:
+            # --- Step 1: Start the core workflow instance (creates Workflow & Instance records) ---
+            # engine.start_workflow handles the commit for Workflow and Instance records internally
+            workflow_instance = engine.start_workflow(dsar_spec_id)
+            unique_workflow_id = str(workflow_instance.wf_id) # Get the UUID as string
 
-        # Create the new workflow record
-        new_workflow = UserWorkflow( # Updated class reference
-            user_id=current_user.id,
-            website_account_id=account.id,
-            workflow_id=unique_workflow_id,
-            workflow_type=workflow_type_enum,
-            workflow_status=UserWorkflowStatusEnum.PENDING # Updated Enum reference (Default status)
-        )
-        db.session.add(new_workflow)
-        # We collect info before commit in case the commit fails later
-        created_workflows_info.append({
-            "website_account_id": account.id,
-            "workflow_instance_id": unique_workflow_id # Use the generated unique ID
-        })
+            # --- Step 2: Create the UserWorkflow record ---
+            new_user_workflow = UserWorkflow( # Updated class reference
+                user_id=current_user.id,
+                website_account_id=account.id,
+                workflow_id=unique_workflow_id, # Use the string UUID
+                workflow_type=workflow_type_enum,
+                # Set initial status, maybe RUNNING if it starts right away? Or keep PENDING?
+                # Let's assume it starts running, matching the update_workflow logic
+                workflow_status=UserWorkflowStatusEnum.RUNNING # Updated Enum reference
+            )
+            db.session.add(new_user_workflow)
+            workflows_to_commit.append(new_user_workflow) # Add to list for potential rollback
 
-    # --- Handle potential errors during processing ---
-    if errors:
-        # If there were errors, we should probably not commit *any* workflows
-        # to maintain atomicity, unless partial success is acceptable.
-        # For now, let's rollback if any error occurred.
-        db.session.rollback()
+            # --- Step 3: Commit the UserWorkflow record *BEFORE* running tasks ---
+            # Commit here ensures the UserWorkflow exists when callbacks fire
+            db.session.commit()
+            # Note: If engine.start_workflow didn't commit, you'd commit both here.
+            # Assuming engine.start_workflow commits its part.
+
+            # --- Step 4: Prepare and Run the workflow instance ---
+            # Now it's safe to potentially trigger callbacks
+            start_task = workflow_instance.ready_tasks[0]
+            start_task.data['user_info'] = {'name': account.account_name, 'email': account.account_email}
+            workflow_instance.run_until_user_input_required() # Or complete()
+
+            # Collect info for the response
+            created_workflows_info.append({
+                "website_account_id": account.id,
+                "workflow_instance_id": unique_workflow_id
+            })
+
+        except Exception as e:
+            # If any error occurs for an account (including workflow start or UserWorkflow creation/commit)
+            db.session.rollback() # Rollback the UserWorkflow commit for this specific account
+            errors.append({"account_id": account_id, "error": f"Failed to process: {str(e)}"})
+            # Log the full error e for debugging
+            print(f"Error processing account {account_id}: {e}") # Replace with proper logging
+            # Continue to the next account_id
+
+    # --- Final Response ---
+    if errors and not created_workflows_info:
+        # All failed
         return jsonify({
-            "message": "Failed to create some or all workflows due to errors.",
+            "message": "Failed to create workflows for all specified accounts.",
             "errors": errors
-        }), 400 # Or 422 Unprocessable Entity might be suitable
-
-    # --- Commit and Respond ---
-    try:
-        db.session.commit()
+        }), 500 # Internal Server Error or 400/422 if input related
+    elif errors:
+        # Partial success
+        return jsonify({
+            "message": f"Successfully created {len(created_workflows_info)} workflow(s), but encountered errors with others.",
+            "created_workflows": created_workflows_info,
+            "errors": errors
+        }), 207 # Multi-Status response
+    else:
+        # All succeeded
         return jsonify({
             "message": f"Successfully created {len(created_workflows_info)} workflow(s).",
             "created_workflows": created_workflows_info
         }), 201 # 201 Created status code
-    except Exception as e:
-        db.session.rollback()
-        # Log the exception e
-        print(f"Database commit error: {e}") # Replace with proper logging
-        return jsonify({"message": "An internal error occurred while saving workflows."}), 500
 
+
+# --- Other routes (get_workflows, update_workflow_status) remain the same ---
 @workflow_bp.route('', methods=['GET'])
 @jwt_required()
 def get_workflows():
@@ -241,3 +259,4 @@ def update_workflow_status(workflow_instance_id):
         # Log the exception e
         print(f"Database commit error during status update: {e}") # Replace with proper logging
         return jsonify({"message": "An internal error occurred while updating the workflow status."}), 500
+
