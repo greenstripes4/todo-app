@@ -4,10 +4,12 @@ import datetime
 import logging
 import sys
 import os
+import json
 from SpiffWorkflow import TaskState
 from SpiffWorkflow.specs.WorkflowSpec import WorkflowSpec
 from SpiffWorkflow.serializer.json import JSONSerializer
 from SpiffWorkflow.workflow import Workflow
+from SpiffWorkflow.specs import SubWorkflow
 from SpiffWorkflow.spiff.parser import SpiffBpmnParser
 from SpiffWorkflow.spiff.serializer.config import SPIFF_CONFIG
 from SpiffWorkflow.bpmn.script_engine import TaskDataEnvironment
@@ -30,6 +32,80 @@ if not logger.handlers: # Avoid adding multiple handlers if reloaded
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 health_bp = Blueprint('health', __name__, url_prefix='/health')
+
+# Sample event callback from https://github.com/sartography/SpiffWorkflow/blob/main/tests/SpiffWorkflow/core/util.py
+def on_ready_cb(workflow, task, taken_path):
+    reached_key = "%s_reached" % str(task.task_spec.name)
+    n_reached = task.get_data(reached_key, 0) + 1
+    task.set_data(**{reached_key:       n_reached,
+                     'two':             2,
+                     'three':           3,
+                     'test_attribute1': 'false',
+                     'test_attribute2': 'true'})
+
+    # Collect a list of all data.
+    atts = []
+    for key, value in list(task.data.items()):
+        if key in ['data',
+                   'two',
+                   'three',
+                   'test_attribute1',
+                   'test_attribute2']:
+            continue
+        if key.endswith('reached'):
+            continue
+        atts.append('='.join((key, str(value))))
+
+    # Collect a list of all task data.
+    props = []
+    for key, value in list(task.task_spec.data.items()):
+        props.append('='.join((key, str(value))))
+
+    # Store the list of data in the workflow.
+    atts = ';'.join(atts)
+    props = ';'.join(props)
+    old = task.get_data('data', '')
+    data = task.task_spec.name + ': ' + atts + '/' + props + '\n'
+    task.set_data(data=old + data)
+    return True
+
+def on_complete_cb(workflow, task, taken_path):
+    # Record the path.
+    indent = '  ' * task.depth
+    taken_path.append('%s%s' % (indent, task.task_spec.name))
+    # In workflows that load a subworkflow, the newly loaded children
+    # will not have on_ready_cb() assigned. By using this function, we
+    # re-assign the function in every step, thus making sure that new
+    # children also call on_ready_cb().
+    for child in task.children:
+        track_task(child.task_spec, taken_path)
+    return True
+
+def on_update_cb(workflow, task, taken_path):
+    for child in task.children:
+        track_task(child.task_spec, taken_path)
+    return True
+
+def track_task(task_spec, taken_path):
+    # Disconnecting and reconnecting makes absolutely no sense but inexplicably these tests break
+    # if just connected based on a check that they're not
+    if task_spec.ready_event.is_connected(on_ready_cb):
+        task_spec.ready_event.disconnect(on_ready_cb)
+    task_spec.ready_event.connect(on_ready_cb, taken_path)
+    if task_spec.completed_event.is_connected(on_complete_cb):
+        task_spec.completed_event.disconnect(on_complete_cb)
+    task_spec.completed_event.connect(on_complete_cb, taken_path)
+    if isinstance(task_spec, SubWorkflow):
+        if task_spec.update_event.is_connected(on_update_cb):
+            task_spec.update_event.disconnect(on_update_cb)
+        task_spec.update_event.connect(on_update_cb, taken_path)
+
+def track_workflow(wf_spec, taken_path=None):
+    if taken_path is None:
+        taken_path = []
+    for name in wf_spec.task_specs:
+        track_task(wf_spec.task_specs[name], taken_path)
+    return taken_path
 
 
 @health_bp.route('/time', methods=['GET'])
@@ -204,6 +280,10 @@ def bpmn_check():
 
         # Start a workflow instance
         workflow_instance = engine.start_workflow(spec_id)
+        
+        # Connect event callbacks
+        taken_path = track_workflow(workflow_instance.workflow.spec)
+
         start_task = workflow_instance.ready_tasks[0]
         start_task.data.update(my_input_data)
 
@@ -216,7 +296,9 @@ def bpmn_check():
         # --- Check if the workflow actually completed ---
         # Access the underlying SpiffWorkflow object via workflow_instance.workflow
         if workflow_instance.workflow.is_completed():
-            logger.info("Workflow instance completed successfully.")
+            logger.info("Workflow instance completed successfully with the below path and data:")
+            logger.info('Workflow Path:\n'.join(taken_path) + '\n')
+            logger.info('Workflow Date:\n' + json.dumps(workflow_instance.workflow.get_data('data', '')) + '\n')
             # Return success response
             return jsonify({
                 'status': 'ok',
