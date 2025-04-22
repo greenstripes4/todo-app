@@ -77,7 +77,7 @@ const setActiveView = (viewName) => {
   padding: 20px;
   height: 100%; /* Take full height of the flex container */
   overflow-y: auto; /* Allow content area to scroll if needed */
-  margin-left: 200px; /* Add this back since navigation is position: fixed */
+  /* margin-left: 200px; Add this back since navigation is position: fixed */
 
 }
 
