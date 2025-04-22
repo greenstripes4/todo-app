@@ -90,12 +90,61 @@ with app.app_context():
                 print(f"Sample website account created for admin user.")
             except Exception as e:
                 db.session.rollback()
-                print(f"Error creating sample website account: {e}")
+                print(f"Error creating sample website account for admin: {e}")
         else:
             print(f"Sample website account for admin user already exists.")
     else:
-        print("Admin user not found or creation failed, cannot create sample website account.")
-    # --- End Sample Website Account Creation ---
+        print("Admin user not found or creation failed, cannot create sample website account for admin.")
+    # --- End Admin Sample Website Account Creation ---
+
+    # --- START: Test User Creation ---
+    test_user = User.query.filter_by(username='test').first()
+    if not test_user:
+        # Create the test user
+        test_user = User(username='test', role='normal', status='active')
+        test_user.set_password('test') # Set password for test user
+        db.session.add(test_user)
+        try:
+            db.session.commit()
+            print("Test user created.")
+            # Re-query test_user to get the ID after commit
+            test_user = User.query.filter_by(username='test').first()
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error creating test user: {e}")
+            test_user = None # Ensure test_user is None if creation failed
+    else:
+        print("Test user already exists.")
+
+    # --- Sample Website Account Creation for Test User ---
+    if test_user:
+        test_sample_account_url = 'https://test-sample-site.com'
+        existing_test_sample_account = WebsiteAccount.query.filter_by(
+            user_id=test_user.id,
+            website_url=test_sample_account_url
+        ).first()
+
+        if not existing_test_sample_account:
+            test_sample_account = WebsiteAccount(
+                user_id=test_user.id,
+                website_url=test_sample_account_url,
+                account_name='Test Sample Account',
+                account_email='test@sample-site.com',
+                compliance_contact='compliance@test-sample-site.com'
+            )
+            db.session.add(test_sample_account)
+            try:
+                db.session.commit()
+                print(f"Sample website account created for test user.")
+            except Exception as e:
+                db.session.rollback()
+                print(f"Error creating sample website account for test user: {e}")
+        else:
+            print(f"Sample website account for test user already exists.")
+    else:
+        print("Test user not found or creation failed, cannot create sample website account for test user.")
+    # --- END: Test User Creation ---
+
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__))) # Points to backend/
 # Define BPMN file paths (adjust if needed)

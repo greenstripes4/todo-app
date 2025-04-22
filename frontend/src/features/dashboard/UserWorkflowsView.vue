@@ -138,6 +138,9 @@ const fetchWorkflows = async (page = 1, perPage = 10) => { // Add parameters for
     const url = new URL(`${API_ENDPOINT}/workflows`);
     url.searchParams.append('page', page);
     url.searchParams.append('per_page', perPage);
+    // --- START: Added scope parameter ---
+    url.searchParams.append('scope', 'mine'); // Explicitly request user's own workflows
+    // --- END: Added scope parameter ---
 
     const response = await fetch(url.toString(), { // Use url.toString()
       method: 'GET',
