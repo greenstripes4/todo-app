@@ -442,7 +442,8 @@ class SqlSerializer(BpmnWorkflowSerializer):
                     if workflow.success:
                         user_workflow.workflow_status = UserWorkflowStatusEnum.COMPLETED
                     else:
-                        user_workflow.workflow_status = UserWorkflowStatusEnum.FAILED
+                        if user_workflow.workflow_status != UserWorkflowStatusEnum.TERMINATED:
+                            user_workflow.workflow_status = UserWorkflowStatusEnum.FAILED
                     user_workflow.active_tasks = [] # Clear active tasks on completion
                 else:
                     # Check if the status is already one of the terminal states before setting to RUNNING

@@ -7,9 +7,15 @@ from sqlalchemy.orm import joinedload
 # Updated model imports
 from models import User, WebsiteAccount, UserWorkflow, UserWorkflowTypeEnum, UserWorkflowStatusEnum # Updated class reference
 from app import db, engine, dsar_spec_id # Make sure dsar_spec_id is correctly imported/available
+# Import SpiffWorkflow TaskState if needed for cancellation logic
+from SpiffWorkflow import TaskState
+import logging # Import logging
 
+# --- Existing Blueprint Setup ---
 workflow_bp = Blueprint('workflow', __name__, url_prefix='/workflows')
+logger = logging.getLogger(__name__) # Add logger for this module
 
+# --- create_workflows function (keep as is) ---
 @workflow_bp.route('', methods=['POST'])
 @jwt_required()
 def create_workflows():
@@ -62,9 +68,14 @@ def create_workflows():
         if not account:
             errors.append({"account_id": account_id, "error": "Website account not found"})
             continue
-        if account.user_id != current_user.id:
+        # --- Authorization Check ---
+        # Allow if the user owns the account OR if the user is an admin (assuming admin check is needed elsewhere or not applicable here)
+        # For now, only check ownership. Add admin check if required.
+        if account.user_id != current_user.id: # Add 'and current_user.role != 'admin'' if admins can create for others
             errors.append({"account_id": account_id, "error": "Forbidden: You do not own this website account"})
             continue
+        # --- End Authorization Check ---
+
 
         try:
             # --- Step 1: Start the core workflow instance (creates Workflow & Instance records) ---
@@ -83,7 +94,7 @@ def create_workflows():
                 workflow_status=UserWorkflowStatusEnum.RUNNING # Updated Enum reference
             )
             db.session.add(new_user_workflow)
-            workflows_to_commit.append(new_user_workflow) # Add to list for potential rollback
+            # workflows_to_commit.append(new_user_workflow) # No longer needed if committing immediately
 
             # --- Step 3: Commit the UserWorkflow record *BEFORE* running tasks ---
             # Commit here ensures the UserWorkflow exists when callbacks fire
@@ -94,46 +105,58 @@ def create_workflows():
             # --- Step 4: Prepare and Run the workflow instance ---
             # Now it's safe to potentially trigger callbacks
             start_task = workflow_instance.ready_tasks[0]
-            start_task.data['user_info'] = {'name': account.account_name, 'email': account.account_email}
+            # Ensure account details exist before accessing them
+            account_name = getattr(account, 'account_name', 'N/A')
+            account_email = getattr(account, 'account_email', 'N/A')
+            start_task.data['user_info'] = {'name': account_name, 'email': account_email}
             workflow_instance.run_until_user_input_required() # Or complete()
 
             # Collect info for the response
             created_workflows_info.append({
                 "website_account_id": account.id,
+                "user_workflow_id": new_user_workflow.id, # Return the UserWorkflow ID
                 "workflow_instance_id": unique_workflow_id
             })
 
         except Exception as e:
             # If any error occurs for an account (including workflow start or UserWorkflow creation/commit)
             db.session.rollback() # Rollback the UserWorkflow commit for this specific account
-            errors.append({"account_id": account_id, "error": f"Failed to process: {str(e)}"})
+            error_msg = f"Failed to process: {str(e)}"
+            errors.append({"account_id": account_id, "error": error_msg})
             # Log the full error e for debugging
-            print(f"Error processing account {account_id}: {e}") # Replace with proper logging
+            logger.error(f"Error processing account {account_id}: {e}", exc_info=True) # Use logger
             # Continue to the next account_id
 
     # --- Final Response ---
+    status_code = 201 # Default: Created
+    response_data = {}
+
     if errors and not created_workflows_info:
         # All failed
-        return jsonify({
+        status_code = 500 # Internal Server Error or 400/422 if input related
+        response_data = {
             "message": "Failed to create workflows for all specified accounts.",
             "errors": errors
-        }), 500 # Internal Server Error or 400/422 if input related
+        }
     elif errors:
         # Partial success
-        return jsonify({
+        status_code = 207 # Multi-Status response
+        response_data = {
             "message": f"Successfully created {len(created_workflows_info)} workflow(s), but encountered errors with others.",
             "created_workflows": created_workflows_info,
             "errors": errors
-        }), 207 # Multi-Status response
+        }
     else:
         # All succeeded
-        return jsonify({
+        response_data = {
             "message": f"Successfully created {len(created_workflows_info)} workflow(s).",
             "created_workflows": created_workflows_info
-        }), 201 # 201 Created status code
+        }
+
+    return jsonify(response_data), status_code
 
 
-# --- Other routes (get_workflows, update_workflow_status) remain the same ---
+# --- get_workflows function (keep as is) ---
 @workflow_bp.route('', methods=['GET'])
 @jwt_required()
 def get_workflows():
@@ -202,15 +225,17 @@ def get_workflows():
     return jsonify({'workflows': workflows_list, 'pagination': pagination_metadata}), 200
 
 
-# --- NEW ENDPOINT ---
+# --- UPDATED ENDPOINT ---
 @workflow_bp.route('/<string:workflow_instance_id>/status', methods=['PATCH'])
 @jwt_required()
 def update_workflow_status(workflow_instance_id):
     """
     Updates the status of a specific workflow instance.
+    If the new status is 'TERMINATED', it also attempts to cancel
+    the underlying SpiffWorkflow instance.
     Expects a JSON payload:
     {
-        "status": "COMPLETED"
+        "status": "COMPLETED" | "TERMINATED" | ...
     }
     Requires the workflow_instance_id (UUID string) in the URL path.
     """
@@ -237,26 +262,72 @@ def update_workflow_status(workflow_instance_id):
         return jsonify({"message": f"Invalid 'status'. Must be one of: {valid_statuses}"}), 400
 
     # --- Find and Authorize Workflow ---
-    workflow = UserWorkflow.query.filter_by(workflow_id=workflow_instance_id).first() # Updated class reference
+    # Use the workflow_id (which is the SpiffWorkflow instance ID) to find the UserWorkflow
+    user_workflow = UserWorkflow.query.filter_by(workflow_id=workflow_instance_id).first() # Updated class reference
 
-    if not workflow:
-        return jsonify({"message": "Workflow not found"}), 404
+    if not user_workflow:
+        return jsonify({"message": "Workflow record not found for the given instance ID"}), 404
 
     # Security check: Ensure the workflow belongs to the current user
-    if workflow.user_id != current_user.id:
+    # Add admin check here as admins should be able to update/terminate any workflow
+    if user_workflow.user_id != current_user.id and current_user.role != 'admin':
         return jsonify({"message": "Forbidden: You do not own this workflow"}), 403
 
-    # --- Update and Commit ---
+    # --- Update Logic ---
     try:
-        workflow.workflow_status = new_status_enum
+        # --- Cancellation Logic ---
+        if new_status_enum == UserWorkflowStatusEnum.TERMINATED:
+            logger.info(f"Attempting to terminate SpiffWorkflow instance: {workflow_instance_id}")
+            try:
+                # Get the workflow instance from the engine
+                instance = engine.get_workflow(workflow_instance_id) # Use the ID from the URL
+
+                if instance and instance.workflow:
+                    # Check if it's already completed or cancelled to avoid errors
+                    if not instance.workflow.is_completed():
+                         # Call the cancel method on the underlying SpiffWorkflow object
+                        instance.workflow.cancel()
+                        # Persist the change using the instance's save method (which calls engine.update_workflow)
+                        instance.save()
+                        logger.info(f"Successfully cancelled SpiffWorkflow instance: {workflow_instance_id}")
+                    elif instance.workflow.is_cancelled():
+                         logger.warning(f"SpiffWorkflow instance {workflow_instance_id} was already cancelled.")
+                    else: # Already completed
+                         logger.warning(f"SpiffWorkflow instance {workflow_instance_id} is already completed, cannot cancel.")
+                         # Optionally, you could prevent setting the UserWorkflow status to TERMINATED
+                         # if the underlying workflow is already COMPLETED.
+                         # return jsonify({"message": "Cannot terminate an already completed workflow"}), 409 # Conflict
+
+                else:
+                    # This case might indicate an inconsistency if the UserWorkflow record exists
+                    # but the engine can't find the corresponding instance.
+                    logger.error(f"Could not find SpiffWorkflow instance {workflow_instance_id} in engine despite UserWorkflow record existing.")
+                    # Decide how to handle: proceed with DB update? Return error?
+                    # For now, let's return an error as it indicates a potential problem.
+                    return jsonify({"message": "Internal error: Workflow instance not found in engine."}), 500
+
+            except Exception as cancel_err:
+                # Log the specific error during cancellation
+                logger.error(f"Error cancelling SpiffWorkflow instance {workflow_instance_id}: {cancel_err}", exc_info=True)
+                # Rollback any potential DB changes from engine.save() if it partially committed
+                db.session.rollback()
+                return jsonify({"message": f"Failed to cancel the workflow instance: {str(cancel_err)}"}), 500
+        # --- End Cancellation Logic ---
+
+        # Update the status in the UserWorkflow table regardless of cancellation success *if* that's desired,
+        # OR only update if cancellation was successful (or not needed).
+        # Current logic: Update status after successful cancellation or if status is not TERMINATED.
+        user_workflow.workflow_status = new_status_enum
         db.session.commit()
+
+        logger.info(f"Successfully updated UserWorkflow {user_workflow.id} status to {new_status_enum.value}")
         return jsonify({
             "message": "Workflow status updated successfully.",
-            "workflow": workflow.to_dict() # Return updated workflow details
+            "workflow": user_workflow.to_dict() # Return updated workflow details
         }), 200
+
     except Exception as e:
         db.session.rollback()
         # Log the exception e
-        print(f"Database commit error during status update: {e}") # Replace with proper logging
+        logger.error(f"Database commit error during status update for UserWorkflow {user_workflow.id}: {e}", exc_info=True) # Use logger
         return jsonify({"message": "An internal error occurred while updating the workflow status."}), 500
-
