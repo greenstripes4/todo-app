@@ -33,6 +33,21 @@ if not logger.handlers: # Avoid adding multiple handlers if reloaded
 
 health_bp = Blueprint('health', __name__, url_prefix='/health')
 
+def hello_world(user_info):
+    """
+    Writes the string 'hello dsar' to the file /app/result.txt.
+    Creates the /app directory if it doesn't exist.
+    """
+    file_path = '/app/result.txt'
+    output_string = 'hello dsar'
+
+    # Write the string to the file
+    with open(file_path, 'w') as f:
+        f.write(output_string + '\n') # Added newline for clarity in the file
+        f.write(f"Hello from {user_info['name']} \n")
+        f.write(f"Hello from {user_info['email']} \n")
+    print(f"Successfully wrote '{output_string}' to {file_path}")
+
 # Sample event callback from https://github.com/sartography/SpiffWorkflow/blob/main/tests/SpiffWorkflow/core/util.py
 def on_ready_cb(workflow, task, taken_path):
     reached_key = "%s_reached" % str(task.task_spec.name)
@@ -271,7 +286,8 @@ def bpmn_check():
         }
 
         script_env = TaskDataEnvironment({
-          'datetime': datetime
+          'datetime': datetime,
+          'hello_world': hello_world
           })
         engine = BpmnEngine(parser, serializer, script_env)
 
