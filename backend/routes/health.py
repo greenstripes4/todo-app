@@ -1,5 +1,5 @@
 # /config/workspace/todo-app/backend/routes/health.py
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request # Added request
 import datetime
 import logging
 import sys
@@ -18,6 +18,7 @@ from workflows.serializer.sql.serializer import (
     SqlSerializer,
 )
 from workflows.engine import BpmnEngine
+from utils.email import GmailUtils # <-- Corrected Import Path
 
 # --- Configuration ---
 # Assuming BASE_DIR is where your 'workflows' directory resides
@@ -28,11 +29,14 @@ JSON_FILE_PATH = os.path.join(BASE_DIR, 'workflows/definitions/nuclear.json')
 # --- Logging Setup ---
 # Use Flask's logger or standard logging
 logger = logging.getLogger(__name__)
-if not logger.handlers: # Avoid adding multiple handlers if reloaded
+# Note: If running within Flask app context, Flask's logger might already be configured.
+# This basicConfig is a fallback or for standalone script execution.
+if not logger.handlers:
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 health_bp = Blueprint('health', __name__, url_prefix='/health')
 
+# --- Existing Functions (hello_world, on_ready_cb, etc.) remain unchanged ---
 def hello_world(user_info):
     """
     Writes the string 'hello dsar' to the file /app/result.txt.
@@ -122,6 +126,7 @@ def track_workflow(wf_spec, taken_path=None):
         track_task(wf_spec.task_specs[name], taken_path)
     return taken_path
 
+# --- Existing Health Check Routes ---
 
 @health_bp.route('/time', methods=['GET'])
 def time_check():
@@ -296,7 +301,7 @@ def bpmn_check():
 
         # Start a workflow instance
         workflow_instance = engine.start_workflow(spec_id)
-        
+
         # Connect event callbacks
         taken_path = track_workflow(workflow_instance.workflow.spec)
 
@@ -347,3 +352,123 @@ def bpmn_check():
             'message': 'Workflow check failed (SQL)',
             'error': f"{type(e).__name__}: {str(e)}" # Provide error type and message
         }), 500 # 500 Internal Server Error
+
+
+# --- Email Test Routes ---
+
+# Modified send_test_email to use GET and hardcoded values
+@health_bp.route('/send-test-email', methods=['GET']) # Changed to GET
+def send_test_email():
+    """
+    Test Endpoint - Send Email via Gmail API (GET Request)
+    Sends a test email with hardcoded content using the configured Gmail account.
+    ---
+    tags:
+      - Email Tests
+    responses:
+      200:
+        description: Email sent successfully.
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  example: Email sent successfully
+                message_id:
+                  type: string
+                  example: 18b9cdef01234567
+      400:
+        description: Bad Request - Hardcoded recipient email needs to be set.
+      500:
+        description: Internal Server Error - Failed to initialize Gmail or send email.
+    """
+    # --- Hardcoded Email Content ---
+    # !!! IMPORTANT: Change this to a valid recipient email address you can check !!!
+    recipient = "your_test_recipient@example.com"
+    subject = "API Test Email (GET)"
+    body = "This is a hardcoded test email sent via a GET request from the health check endpoint."
+    # -----------------------------
+
+    # Basic check if the placeholder recipient is still there
+    if recipient == "your_test_recipient@example.com":
+        logger.error("Hardcoded recipient email in /send-test-email needs to be updated.")
+        return jsonify({"error": "Please configure the hardcoded recipient email in the route code."}), 400 # Use 400 Bad Request
+
+    logger.info(f"Received GET request to send test email to hardcoded recipient: {recipient}")
+    try:
+        gmail = GmailUtils() # Instantiates and authenticates
+        if not gmail.service:
+             logger.error("Failed to initialize Gmail service for sending email.")
+             return jsonify({"error": "Failed to initialize Gmail service. Check logs/config."}), 500
+
+        # Use the hardcoded values
+        result = gmail.send_email(recipient, subject, body)
+
+        if result and result.get('id'):
+            logger.info(f"Successfully sent test email to {recipient}, message ID: {result.get('id')}")
+            return jsonify({"message": "Email sent successfully", "message_id": result.get('id')}), 200
+        else:
+            logger.error(f"Failed to send test email to {recipient}. Gmail API did not return success.")
+            return jsonify({"error": "Failed to send email via Gmail API"}), 500
+    except Exception as e:
+         # Catch potential errors during GmailUtils instantiation or sending
+         logger.error(f"Error in /send-test-email endpoint: {e}", exc_info=True)
+         return jsonify({"error": "An internal server error occurred while sending email"}), 500
+
+
+@health_bp.route('/list-unread-emails', methods=['GET']) # Renamed slightly for clarity
+def list_unread_emails():
+    """
+    Test Endpoint - List Unread Emails via Gmail API
+    Lists the IDs of unread emails (up to a limit).
+    Optional query parameter: ?limit=N (default 5)
+    ---
+    tags:
+      - Email Tests
+    parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          default: 5
+        description: Maximum number of unread email IDs to return.
+    responses:
+      200:
+        description: Successfully retrieved unread email IDs.
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                unread_message_ids:
+                  type: array
+                  items:
+                    type: string
+                  example: ["18b9cdef01234567", "18b9cdef89abcdef"]
+      500:
+        description: Internal Server Error - Failed to initialize Gmail or list emails.
+    """
+    try:
+        limit = request.args.get('limit', 5, type=int) # Get limit from query param, default 5
+        logger.info(f"Received request to list unread emails (limit: {limit}).")
+
+        gmail = GmailUtils()
+        if not gmail.service:
+             logger.error("Failed to initialize Gmail service for listing emails.")
+             return jsonify({"error": "Failed to initialize Gmail service. Check logs/config."}), 500
+
+        message_ids = gmail.list_emails(query='is:unread', max_results=limit)
+
+        if message_ids is not None:
+            logger.info(f"Found {len(message_ids)} unread email IDs.")
+            # You might want to fetch details for each ID here in a real app
+            return jsonify({"unread_message_ids": message_ids}), 200
+        else:
+            logger.error("Failed to list unread emails via Gmail API.")
+            return jsonify({"error": "Failed to list emails via Gmail API"}), 500
+    except Exception as e:
+         # Catch potential errors during GmailUtils instantiation or listing
+         logger.error(f"Error in /list-unread-emails endpoint: {e}", exc_info=True)
+         return jsonify({"error": "An internal server error occurred while listing emails"}), 500

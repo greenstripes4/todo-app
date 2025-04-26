@@ -7,5 +7,6 @@ frontend/.env
 backend/**/__pycache__/
 backend/*.pyc
 backend/.venv
+backend/config
 
 backend/spiff.db
