@@ -6,7 +6,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy.orm import joinedload, contains_eager # Import contains_eager
 # Updated model imports
 from models import User, WebsiteAccount, UserWorkflow, UserWorkflowTypeEnum, UserWorkflowStatusEnum # Updated class reference
-from app import db, engine, dsar_spec_id # Make sure dsar_spec_id is correctly imported/available
+from app import db, engine, dsar_spec_id
 # Removed: from SpiffWorkflow.bpmn.specs.Workflow import WorkflowState
 import logging # Import logging
 
@@ -93,9 +93,9 @@ def create_workflows():
 
             # --- Step 4: Prepare and Run the workflow instance ---
             start_task = workflow_instance.ready_tasks[0]
-            account_name = getattr(account, 'account_name', 'N/A')
-            account_email = getattr(account, 'account_email', 'N/A')
-            start_task.data['user_info'] = {'name': account_name, 'email': account_email}
+            # Use the to_dict() method to pass all WebsiteAccount fields
+            # Note: This includes id, user_id, website_url, account_name, account_email, compliance_contact
+            start_task.data['website_account_info'] = account.to_dict() # Renamed key for clarity
             workflow_instance.run_until_user_input_required()
 
             # Collect info for the response

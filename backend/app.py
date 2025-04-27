@@ -1,8 +1,8 @@
 # /config/workspace/todo-app/backend/app.py
+
 import os
 import datetime
-# Remove sqlite3 import as it's no longer directly used here
-# import sqlite3
+import logging
 from flask import Flask, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager
@@ -18,6 +18,8 @@ CORS(app)
 # Ensure DATABASE_URL points to your PostgreSQL database
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'postgresql://user:password@localhost/mydatabase') # Added default for safety
 app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'super-secret-key') # Added default for safety
+
+logger = logging.getLogger(__name__) # Add logger for this module
 
 # Initialize extensions
 db = SQLAlchemy(app)
@@ -35,12 +37,18 @@ from workflows.serializer.sql.serializer import (
     SqlSerializer,
 )
 
-
 # Import models (ensure these are defined correctly)
 from models.user import User
 from models.website_account import WebsiteAccount
 # Import workflow models to ensure tables are created if needed
 from models import workflow_spec, workflow, instance
+
+# --- Import functions for BPMN Script Engine ---
+# Import the function from dsar.py
+from workflows.scripts.dsar import validate_website_account
+
+# --- End Import functions for BPMN Script Engine ---
+
 
 # Create tables in the database if they don't exist
 # This will create tables defined in ALL imported models associated with 'db'
@@ -157,11 +165,16 @@ serializer = SqlSerializer(db, registry=registry) # Pass the db object
 
 # Initialize the parser and script environment
 parser = SpiffBpmnParser()
-script_env = TaskDataEnvironment({'datetime': datetime })
+# Add the imported function to the script environment
+script_env = TaskDataEnvironment({
+    'datetime': datetime,
+    'validate_website_account': validate_website_account
+    })
 
 # Initialize the BpmnEngine with the new serializer
 engine = BpmnEngine(parser, serializer, script_env)
 
+logger.info("[Hongda] Load Spec")
 # Add the workflow specification(s) using the engine
 # This will now use SqlSerializer's create_workflow_spec method
 # Ensure the spec name 'Process_DSAR_Request' matches the one in your BPMN file
@@ -171,7 +184,7 @@ try:
         dsar_spec_id = engine.add_spec('Process_DSAR_Request', BPMN_FILE_PATHS, None)
         print(f"DSAR Workflow Spec added/found with ID: {dsar_spec_id}")
 except Exception as e:
-    print(f"Error adding workflow spec: {e}")
+    logger.error(f"Error adding workflow spec: {e}")
     # Decide how to handle this error - maybe exit or log critical failure
 # --- End SpiffWorkflow Engine Setup ---
 
@@ -200,3 +213,4 @@ if __name__ == '__main__':
     is_debug = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
     # Use 0.0.0.0 to be accessible externally (e.g., in Docker)
     app.run(debug=is_debug, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+

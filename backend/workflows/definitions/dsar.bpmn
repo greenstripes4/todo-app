@@ -23,14 +23,16 @@ Can be aborted via an 'AbortDSARMessage'.</bpmn:documentation>
       <bpmn:outgoing>Flow_To_ValidateInput</bpmn:outgoing>
     </bpmn:startEvent>
 
-    <!-- Removed Data Object References and Data Objects -->
-
-    <bpmn:task id="Task_ValidateInput" name="Validate Input Data">
-      <bpmn:documentation>Check if all required fields in the input JSON are present and valid.</bpmn:documentation>
+    <bpmn:scriptTask id="Task_ValidateInput" name="Validate Input Data" scriptFormat="python">
+      <bpmn:documentation>Check if all required fields in the input JSON are present and valid by calling an external script/method.</bpmn:documentation>
       <bpmn:incoming>Flow_To_ValidateInput</bpmn:incoming>
       <bpmn:outgoing>Flow_To_FormulateRequest</bpmn:outgoing>
-      <!-- Removed Property and Data Input Association -->
-    </bpmn:task>
+      <bpmn:script>
+<![CDATA[
+isValid = validate_website_account(website_account_info)
+]]>
+      </bpmn:script>
+    </bpmn:scriptTask>
 
     <bpmn:sequenceFlow id="Flow_To_ValidateInput" sourceRef="StartEvent_RequestReceived" targetRef="Task_ValidateInput" />
 
@@ -40,6 +42,10 @@ Can be aborted via an 'AbortDSARMessage'.</bpmn:documentation>
       <bpmn:outgoing>Flow_To_SendRequest</bpmn:outgoing>
     </bpmn:task>
 
+    <!-- NOTE: You might want an Exclusive Gateway after Task_ValidateInput
+         to check the 'isInputValid' variable and potentially end the process
+         or go to an error handling path if validation fails.
+         This example proceeds directly for simplicity based on the original flow. -->
     <bpmn:sequenceFlow id="Flow_To_FormulateRequest" sourceRef="Task_ValidateInput" targetRef="Task_FormulateRequest" />
 
     <bpmn:sendTask id="Task_SendRequest" name="Send Request to Website">
@@ -113,9 +119,10 @@ Can be aborted via an 'AbortDSARMessage'.</bpmn:documentation>
           <dc:Bounds x="152" y="202" width="90" height="27" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
+      <!-- Shape for the modified task (visual representation might change depending on the tool) -->
       <bpmndi:BPMNShape id="Shape_Task_ValidateInput" bpmnElement="Task_ValidateInput">
         <dc:Bounds x="270" y="137" width="100" height="80" />
-        <bpmndi:BPMNLabel />
+        <bpmndi:BPMNLabel /> <!-- Label text comes from the 'name' attribute -->
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_Task_FormulateRequest" bpmnElement="Task_FormulateRequest">
         <dc:Bounds x="430" y="137" width="100" height="80" />
