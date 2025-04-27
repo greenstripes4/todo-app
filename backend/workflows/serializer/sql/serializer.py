@@ -440,7 +440,14 @@ class SqlSerializer(BpmnWorkflowSerializer):
                 if workflow.is_completed():
                     logger.info(f"Workflow {wf_id_str} completed. Updating UserWorkflow.")
                     if workflow.success:
-                        user_workflow.workflow_status = UserWorkflowStatusEnum.COMPLETED
+                        completed_tasks = workflow.get_tasks(state=TaskState.COMPLETED)
+                        for completed_task in completed_tasks:
+                            if completed_task.task_spec.name.startswith('End') and completed_task.task_spec.name.endswith('Failed'):
+                                logger.info(f"Workflow {wf_id_str} failed gracefully.")
+                                user_workflow.workflow_status = UserWorkflowStatusEnum.FAILED
+                        if user_workflow.workflow_status != UserWorkflowStatusEnum.FAILED:
+                            logger.info(f"Workflow {wf_id_str} completed gracefully.")
+                            user_workflow.workflow_status = UserWorkflowStatusEnum.COMPLETED
                     else:
                         if user_workflow.workflow_status != UserWorkflowStatusEnum.TERMINATED:
                             user_workflow.workflow_status = UserWorkflowStatusEnum.FAILED
