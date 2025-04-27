@@ -7,9 +7,8 @@
                   id="Definitions_DSAR_Workflow"
                   targetNamespace="http://bpmn.io/schema/bpmn"
                   exporter="Gemini Code Assist"
-                  exporterVersion="1.1">
+                  exporterVersion="1.3"> <!-- Incremented version -->
 
-  <!-- Added Message Definition for Abort -->
   <bpmn:message id="Message_AbortDSAR" name="AbortDSARMessage" />
 
   <bpmn:process id="Process_DSAR_Request" name="DSAR Request Process" isExecutable="true">
@@ -23,30 +22,50 @@ Can be aborted via an 'AbortDSARMessage'.</bpmn:documentation>
       <bpmn:outgoing>Flow_To_ValidateInput</bpmn:outgoing>
     </bpmn:startEvent>
 
+    <bpmn:sequenceFlow id="Flow_To_ValidateInput" sourceRef="StartEvent_RequestReceived" targetRef="Task_ValidateInput" />
+
     <bpmn:scriptTask id="Task_ValidateInput" name="Validate Input Data" scriptFormat="python">
-      <bpmn:documentation>Check if all required fields in the input JSON are present and valid by calling an external script/method.</bpmn:documentation>
+      <bpmn:documentation>Check if all required fields in the input JSON are present and valid. Sets 'isInputValid' process variable (boolean).</bpmn:documentation>
       <bpmn:incoming>Flow_To_ValidateInput</bpmn:incoming>
-      <bpmn:outgoing>Flow_To_FormulateRequest</bpmn:outgoing>
+      <bpmn:outgoing>Flow_To_Gateway_CheckValidation</bpmn:outgoing>
       <bpmn:script>
 <![CDATA[
-isValid = validate_website_account(website_account_info)
+# Assume validate_website_account returns a boolean
+isInputValid = validate_website_account(website_account_info)
 ]]>
       </bpmn:script>
     </bpmn:scriptTask>
 
-    <bpmn:sequenceFlow id="Flow_To_ValidateInput" sourceRef="StartEvent_RequestReceived" targetRef="Task_ValidateInput" />
+    <bpmn:exclusiveGateway id="Gateway_CheckValidation" name="Input Valid?">
+      <bpmn:incoming>Flow_To_Gateway_CheckValidation</bpmn:incoming>
+      <bpmn:outgoing>Flow_Validation_OK</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Validation_Failed</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:sequenceFlow id="Flow_To_Gateway_CheckValidation" sourceRef="Task_ValidateInput" targetRef="Gateway_CheckValidation" />
+
+    <bpmn:sequenceFlow id="Flow_Validation_OK" name="Yes" sourceRef="Gateway_CheckValidation" targetRef="Task_FormulateRequest">
+       <!-- Using standard tFormalExpression. Engine needs to support evaluation. -->
+       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">isInputValid == True</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+
+    <bpmn:sequenceFlow id="Flow_Validation_Failed" name="No" sourceRef="Gateway_CheckValidation" targetRef="EndEvent_ValidationFailed">
+       <!-- Using standard tFormalExpression. Engine needs to support evaluation. -->
+       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">isInputValid == False</bpmn:conditionExpression>
+       <!-- Optional: Define a default flow (engine support varies) -->
+       <!-- <default>Flow_Validation_Failed</default> --> <!-- Some engines might use an attribute on the gateway -->
+    </bpmn:sequenceFlow>
+
+    <bpmn:endEvent id="EndEvent_ValidationFailed" name="Validation Failed">
+       <bpmn:documentation>Process terminated due to invalid input data.</bpmn:documentation>
+       <bpmn:incoming>Flow_Validation_Failed</bpmn:incoming>
+    </bpmn:endEvent>
 
     <bpmn:task id="Task_FormulateRequest" name="Formulate DSAR Email">
       <bpmn:documentation>Create the DSAR request email content using details from the input JSON.</bpmn:documentation>
-      <bpmn:incoming>Flow_To_FormulateRequest</bpmn:incoming>
+      <bpmn:incoming>Flow_Validation_OK</bpmn:incoming>
       <bpmn:outgoing>Flow_To_SendRequest</bpmn:outgoing>
     </bpmn:task>
-
-    <!-- NOTE: You might want an Exclusive Gateway after Task_ValidateInput
-         to check the 'isInputValid' variable and potentially end the process
-         or go to an error handling path if validation fails.
-         This example proceeds directly for simplicity based on the original flow. -->
-    <bpmn:sequenceFlow id="Flow_To_FormulateRequest" sourceRef="Task_ValidateInput" targetRef="Task_FormulateRequest" />
 
     <bpmn:sendTask id="Task_SendRequest" name="Send Request to Website">
        <bpmn:documentation>Send the formulated DSAR email to the website's contact email address.</bpmn:documentation>
@@ -61,7 +80,7 @@ isValid = validate_website_account(website_account_info)
       <bpmn:incoming>Flow_To_WaitForResponse</bpmn:incoming>
       <bpmn:outgoing>Flow_To_CheckAndReceive</bpmn:outgoing>
       <bpmn:timerEventDefinition id="TimerEventDefinition_WaitPeriod">
-        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P30D</bpmn:timeDuration> <!-- ISO 8601 duration for 30 Days -->
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P30D</bpmn:timeDuration>
       </bpmn:timerEventDefinition>
     </bpmn:intermediateCatchEvent>
 
@@ -75,13 +94,10 @@ isValid = validate_website_account(website_account_info)
 
     <bpmn:sequenceFlow id="Flow_To_CheckAndReceive" sourceRef="Event_WaitForResponse" targetRef="Task_CheckAndReceiveData" />
 
-    <!-- Removed Data Object References and Data Objects -->
-
     <bpmn:task id="Task_StoreFile" name="Store Received File">
        <bpmn:documentation>Save the retrieved user data file to the location specified in the input JSON.</bpmn:documentation>
       <bpmn:incoming>Flow_To_StoreFile</bpmn:incoming>
       <bpmn:outgoing>Flow_To_End</bpmn:outgoing>
-      <!-- Removed Property and Data Output Association -->
     </bpmn:task>
 
     <bpmn:sequenceFlow id="Flow_To_StoreFile" sourceRef="Task_CheckAndReceiveData" targetRef="Task_StoreFile" />
@@ -92,7 +108,6 @@ isValid = validate_website_account(website_account_info)
 
     <bpmn:sequenceFlow id="Flow_To_End" sourceRef="Task_StoreFile" targetRef="EndEvent_RequestComplete" />
 
-    <!-- Added Abort Path -->
     <bpmn:intermediateCatchEvent id="Event_AbortRequested" name="Abort Requested">
        <bpmn:documentation>Listens for an external message to abort the process.</bpmn:documentation>
        <bpmn:outgoing>Flow_To_Terminate</bpmn:outgoing>
@@ -109,100 +124,120 @@ isValid = validate_website_account(website_account_info)
 
   </bpmn:process>
 
-  <!-- BPMN Diagram Information -->
+  <!-- BPMN Diagram Information (remains unchanged as it uses standard DI/DC namespaces) -->
   <bpmndi:BPMNDiagram id="BPMNDiagram_DSAR">
     <bpmndi:BPMNPlane id="BPMNPlane_DSAR" bpmnElement="Process_DSAR_Request">
-      <!-- Existing Shapes -->
+      <!-- Shapes -->
       <bpmndi:BPMNShape id="Shape_StartEvent_RequestReceived" bpmnElement="StartEvent_RequestReceived">
         <dc:Bounds x="179" y="159" width="36" height="36" />
         <bpmndi:BPMNLabel>
           <dc:Bounds x="152" y="202" width="90" height="27" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
-      <!-- Shape for the modified task (visual representation might change depending on the tool) -->
       <bpmndi:BPMNShape id="Shape_Task_ValidateInput" bpmnElement="Task_ValidateInput">
         <dc:Bounds x="270" y="137" width="100" height="80" />
-        <bpmndi:BPMNLabel /> <!-- Label text comes from the 'name' attribute -->
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_CheckValidation" bpmnElement="Gateway_CheckValidation" isMarkerVisible="true">
+        <dc:Bounds x="405" y="152" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="398" y="209" width="64" height="14" />
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_Task_FormulateRequest" bpmnElement="Task_FormulateRequest">
-        <dc:Bounds x="430" y="137" width="100" height="80" />
+        <dc:Bounds x="510" y="137" width="100" height="80" />
         <bpmndi:BPMNLabel />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_Task_SendRequest" bpmnElement="Task_SendRequest">
-        <dc:Bounds x="590" y="137" width="100" height="80" />
+        <dc:Bounds x="670" y="137" width="100" height="80" />
         <bpmndi:BPMNLabel />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_Event_WaitForResponse" bpmnElement="Event_WaitForResponse">
-        <dc:Bounds x="752" y="159" width="36" height="36" />
+        <dc:Bounds x="832" y="159" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="728" y="202" width="84" height="40" />
+          <dc:Bounds x="808" y="202" width="84" height="40" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_Task_CheckAndReceiveData" bpmnElement="Task_CheckAndReceiveData">
-        <dc:Bounds x="850" y="137" width="100" height="80" />
+        <dc:Bounds x="930" y="137" width="100" height="80" />
         <bpmndi:BPMNLabel />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_Task_StoreFile" bpmnElement="Task_StoreFile">
-        <dc:Bounds x="1010" y="137" width="100" height="80" />
+        <dc:Bounds x="1090" y="137" width="100" height="80" />
         <bpmndi:BPMNLabel />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_EndEvent_RequestComplete" bpmnElement="EndEvent_RequestComplete">
-        <dc:Bounds x="1172" y="159" width="36" height="36" />
+        <dc:Bounds x="1252" y="159" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="1149" y="202" width="82" height="27" />
+          <dc:Bounds x="1229" y="202" width="82" height="27" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
-      <!-- Removed Data Object Shapes -->
-
-      <!-- Added Shapes for Abort Path -->
-      <bpmndi:BPMNShape id="Shape_Event_AbortRequested" bpmnElement="Event_AbortRequested">
-        <dc:Bounds x="502" y="299" width="36" height="36" />
+      <bpmndi:BPMNShape id="Shape_EndEvent_ValidationFailed" bpmnElement="EndEvent_ValidationFailed">
+        <dc:Bounds x="512" y="259" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="479" y="342" width="82" height="14" />
+          <dc:Bounds x="489" y="302" width="82" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Event_AbortRequested" bpmnElement="Event_AbortRequested">
+        <dc:Bounds x="602" y="359" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="579" y="402" width="82" height="14" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_EndEvent_ProcessAborted" bpmnElement="EndEvent_ProcessAborted">
-        <dc:Bounds x="632" y="299" width="36" height="36" />
+        <dc:Bounds x="732" y="359" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="609" y="342" width="82" height="14" />
+          <dc:Bounds x="709" y="402" width="82" height="14" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
 
-      <!-- Existing Edges -->
+      <!-- Edges -->
       <bpmndi:BPMNEdge id="Edge_Flow_To_ValidateInput" bpmnElement="Flow_To_ValidateInput">
         <di:waypoint x="215" y="177" />
         <di:waypoint x="270" y="177" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_To_FormulateRequest" bpmnElement="Flow_To_FormulateRequest">
+      <bpmndi:BPMNEdge id="Edge_Flow_To_Gateway_CheckValidation" bpmnElement="Flow_To_Gateway_CheckValidation">
         <di:waypoint x="370" y="177" />
-        <di:waypoint x="430" y="177" />
+        <di:waypoint x="405" y="177" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Validation_OK" bpmnElement="Flow_Validation_OK">
+        <di:waypoint x="455" y="177" />
+        <di:waypoint x="510" y="177" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="473" y="159" width="18" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Validation_Failed" bpmnElement="Flow_Validation_Failed">
+        <di:waypoint x="430" y="202" />
+        <di:waypoint x="430" y="277" />
+        <di:waypoint x="512" y="277" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="438" y="237" width="15" height="14" />
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_To_SendRequest" bpmnElement="Flow_To_SendRequest">
-        <di:waypoint x="530" y="177" />
-        <di:waypoint x="590" y="177" />
+        <di:waypoint x="610" y="177" />
+        <di:waypoint x="670" y="177" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_To_WaitForResponse" bpmnElement="Flow_To_WaitForResponse">
-        <di:waypoint x="690" y="177" />
-        <di:waypoint x="752" y="177" />
+        <di:waypoint x="770" y="177" />
+        <di:waypoint x="832" y="177" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_To_CheckAndReceive" bpmnElement="Flow_To_CheckAndReceive">
-        <di:waypoint x="788" y="177" />
-        <di:waypoint x="850" y="177" />
+        <di:waypoint x="868" y="177" />
+        <di:waypoint x="930" y="177" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_To_StoreFile" bpmnElement="Flow_To_StoreFile">
-        <di:waypoint x="950" y="177" />
-        <di:waypoint x="1010" y="177" />
+        <di:waypoint x="1030" y="177" />
+        <di:waypoint x="1090" y="177" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_To_End" bpmnElement="Flow_To_End">
-        <di:waypoint x="1110" y="177" />
-        <di:waypoint x="1172" y="177" />
+        <di:waypoint x="1190" y="177" />
+        <di:waypoint x="1252" y="177" />
       </bpmndi:BPMNEdge>
-      <!-- Removed Data Association Edges -->
-
-      <!-- Added Edge for Abort Path -->
       <bpmndi:BPMNEdge id="Edge_Flow_To_Terminate" bpmnElement="Flow_To_Terminate">
-        <di:waypoint x="538" y="317" />
-        <di:waypoint x="632" y="317" />
+        <di:waypoint x="638" y="377" />
+        <di:waypoint x="732" y="377" />
       </bpmndi:BPMNEdge>
 
     </bpmndi:BPMNPlane>
