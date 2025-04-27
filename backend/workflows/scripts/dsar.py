@@ -1,7 +1,12 @@
-# /config/workspace/todo-app/backend/workflows/script/dsar.py
+# /config/workspace/todo-app/backend/workflows/scripts/dsar.py
 
 import re
+import logging
 from typing import Dict, Any
+
+# --- Logging Setup ---
+# Get a logger for this module
+logger = logging.getLogger(__name__)
 
 # A common regex pattern for basic email validation.
 # For production, consider using a more robust validation library if needed.
@@ -21,23 +26,23 @@ def validate_website_account(website_account_info: Dict[str, Any]) -> bool:
                               typically derived from WebsiteAccount.to_dict().
 
     Returns:
-        True if all validation checks pass, False otherwise. Prints error messages
+        True if all validation checks pass, False otherwise. Logs error messages
         for failed checks.
     """
     if not isinstance(website_account_info, dict):
-        print("Validation Error: Input 'website_account_info' is not a dictionary.")
+        logger.error("Validation Error: Input 'website_account_info' is not a dictionary.")
         return False
 
     # 1. Validate account_name
     account_name = website_account_info.get('account_name')
     if not account_name:  # Checks for None, empty string '', etc.
-        print("Validation Error: 'account_name' is missing or empty.")
+        logger.error("Validation Error: 'account_name' is missing or empty.")
         return False
 
     # 2. Validate account_email
     account_email = website_account_info.get('account_email')
     if not account_email or not re.match(EMAIL_REGEX, account_email):
-        print(f"Validation Error: 'account_email' ('{account_email}') is missing or not a valid email format.")
+        logger.error(f"Validation Error: 'account_email' ('{account_email}') is missing or not a valid email format.")
         return False
 
     # 3. Validate compliance_contact
@@ -45,15 +50,18 @@ def validate_website_account(website_account_info: Dict[str, Any]) -> bool:
     # However, the request requires it to be a valid email for this validation step.
     compliance_contact = website_account_info.get('compliance_contact')
     if not compliance_contact or not re.match(EMAIL_REGEX, compliance_contact):
-        print(f"Validation Error: 'compliance_contact' ('{compliance_contact}') is missing or not a valid email format.")
+        logger.error(f"Validation Error: 'compliance_contact' ('{compliance_contact}') is missing or not a valid email format.")
         return False
 
     # If all checks passed
-    print("Website account info validation successful.")
+    logger.info("Website account info validation successful.")
     return True
 
-# Example Usage (optional, for testing):
+# Example Usage (optional, for testing - kept commented out):
 # if __name__ == '__main__':
+#     # Basic logging config for standalone testing
+#     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+#
 #     valid_info = {
 #         'id': 1, 'user_id': 1, 'website_url': 'http://example.com',
 #         'account_name': 'testuser', 'account_email': 'test@example.com',
@@ -75,8 +83,8 @@ def validate_website_account(website_account_info: Dict[str, Any]) -> bool:
 #         'compliance_contact': None # Missing compliance contact
 #     }
 #
-#     print(f"Valid Info Test: {validate_website_account(valid_info)}")
-#     print(f"Invalid Name Test: {validate_website_account(invalid_name_info)}")
-#     print(f"Invalid Email Test: {validate_website_account(invalid_email_info)}")
-#     print(f"Missing Compliance Test: {validate_website_account(missing_compliance_info)}")
+#     logger.info(f"Valid Info Test: {validate_website_account(valid_info)}")
+#     logger.info(f"Invalid Name Test: {validate_website_account(invalid_name_info)}")
+#     logger.info(f"Invalid Email Test: {validate_website_account(invalid_email_info)}")
+#     logger.info(f"Missing Compliance Test: {validate_website_account(missing_compliance_info)}")
 

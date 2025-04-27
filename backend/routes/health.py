@@ -50,7 +50,7 @@ def hello_world(user_info):
         f.write(output_string + '\n') # Added newline for clarity in the file
         f.write(f"Hello from {user_info['name']} \n")
         f.write(f"Hello from {user_info['email']} \n")
-    print(f"Successfully wrote '{output_string}' to {file_path}")
+    logger.info(f"Successfully wrote '{output_string}' to {file_path}")
 
 # Sample event callback from https://github.com/sartography/SpiffWorkflow/blob/main/tests/SpiffWorkflow/core/util.py
 def on_ready_cb(workflow, task, taken_path):

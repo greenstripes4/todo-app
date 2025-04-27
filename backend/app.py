@@ -8,6 +8,12 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 
+# --- Logging Setup ---
+# Configure logging BEFORE creating the app instance if possible,
+# or at least very early.
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__) # Logger for this module (app.py)
+
 # Initialize the Flask application
 app = Flask(__name__)
 
@@ -18,8 +24,6 @@ CORS(app)
 # Ensure DATABASE_URL points to your PostgreSQL database
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'postgresql://user:password@localhost/mydatabase') # Added default for safety
 app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'super-secret-key') # Added default for safety
-
-logger = logging.getLogger(__name__) # Add logger for this module
 
 # Initialize extensions
 db = SQLAlchemy(app)
@@ -53,28 +57,29 @@ from workflows.scripts.dsar import validate_website_account
 # Create tables in the database if they don't exist
 # This will create tables defined in ALL imported models associated with 'db'
 with app.app_context():
-    print("Creating database tables if they don't exist...")
+    logger.info("Creating database tables if they don't exist...")
     db.create_all()
-    print("Database tables checked/created.")
+    logger.info("Database tables checked/created.")
 
     # --- Admin User Creation ---
     admin_user = User.query.filter_by(username='admin').first()
     if not admin_user:
+        logger.info("Admin user not found, creating...")
         # Create the admin user
         admin_user = User(username='admin', role='admin', status='active')
         admin_user.set_password('admin') # Make sure set_password hashes the password
         db.session.add(admin_user)
         try:
             db.session.commit()
-            print("Admin user created.")
+            logger.info("Admin user created successfully.")
             # Re-query admin_user to get the ID after commit
             admin_user = User.query.filter_by(username='admin').first()
         except Exception as e:
             db.session.rollback()
-            print(f"Error creating admin user: {e}")
+            logger.error(f"Error creating admin user: {e}", exc_info=True)
             admin_user = None # Ensure admin_user is None if creation failed
     else:
-        print("Admin user already exists.")
+        logger.info("Admin user already exists.")
 
     # --- Sample Website Account Creation for Admin ---
     if admin_user:
@@ -85,6 +90,7 @@ with app.app_context():
         ).first()
 
         if not existing_sample_account:
+            logger.info(f"Creating sample website account for admin user (ID: {admin_user.id})...")
             sample_account = WebsiteAccount(
                 user_id=admin_user.id,
                 website_url=sample_account_url,
@@ -95,34 +101,35 @@ with app.app_context():
             db.session.add(sample_account)
             try:
                 db.session.commit()
-                print(f"Sample website account created for admin user.")
+                logger.info(f"Sample website account created for admin user.")
             except Exception as e:
                 db.session.rollback()
-                print(f"Error creating sample website account for admin: {e}")
+                logger.error(f"Error creating sample website account for admin: {e}", exc_info=True)
         else:
-            print(f"Sample website account for admin user already exists.")
+            logger.info(f"Sample website account for admin user already exists.")
     else:
-        print("Admin user not found or creation failed, cannot create sample website account for admin.")
+        logger.warning("Admin user not found or creation failed, cannot create sample website account for admin.")
     # --- End Admin Sample Website Account Creation ---
 
     # --- START: Test User Creation ---
     test_user = User.query.filter_by(username='test').first()
     if not test_user:
+        logger.info("Test user not found, creating...")
         # Create the test user
         test_user = User(username='test', role='normal', status='active')
         test_user.set_password('test') # Set password for test user
         db.session.add(test_user)
         try:
             db.session.commit()
-            print("Test user created.")
+            logger.info("Test user created successfully.")
             # Re-query test_user to get the ID after commit
             test_user = User.query.filter_by(username='test').first()
         except Exception as e:
             db.session.rollback()
-            print(f"Error creating test user: {e}")
+            logger.error(f"Error creating test user: {e}", exc_info=True)
             test_user = None # Ensure test_user is None if creation failed
     else:
-        print("Test user already exists.")
+        logger.info("Test user already exists.")
 
     # --- Sample Website Account Creation for Test User ---
     if test_user:
@@ -133,6 +140,7 @@ with app.app_context():
         ).first()
 
         if not existing_test_sample_account:
+            logger.info(f"Creating sample website account for test user (ID: {test_user.id})...")
             test_sample_account = WebsiteAccount(
                 user_id=test_user.id,
                 website_url=test_sample_account_url,
@@ -143,14 +151,14 @@ with app.app_context():
             db.session.add(test_sample_account)
             try:
                 db.session.commit()
-                print(f"Sample website account created for test user.")
+                logger.info(f"Sample website account created for test user.")
             except Exception as e:
                 db.session.rollback()
-                print(f"Error creating sample website account for test user: {e}")
+                logger.error(f"Error creating sample website account for test user: {e}", exc_info=True)
         else:
-            print(f"Sample website account for test user already exists.")
+            logger.info(f"Sample website account for test user already exists.")
     else:
-        print("Test user not found or creation failed, cannot create sample website account for test user.")
+        logger.warning("Test user not found or creation failed, cannot create sample website account for test user.")
     # --- END: Test User Creation ---
 
 
@@ -174,7 +182,7 @@ script_env = TaskDataEnvironment({
 # Initialize the BpmnEngine with the new serializer
 engine = BpmnEngine(parser, serializer, script_env)
 
-logger.info("[Hongda] Load Spec")
+logger.info("Loading SpiffWorkflow Spec...")
 # Add the workflow specification(s) using the engine
 # This will now use SqlSerializer's create_workflow_spec method
 # Ensure the spec name 'Process_DSAR_Request' matches the one in your BPMN file
@@ -182,9 +190,9 @@ try:
     # It's good practice to add specs within the app context if they interact with the DB immediately
     with app.app_context():
         dsar_spec_id = engine.add_spec('Process_DSAR_Request', BPMN_FILE_PATHS, None)
-        print(f"DSAR Workflow Spec added/found with ID: {dsar_spec_id}")
+        logger.info(f"DSAR Workflow Spec added/found with ID: {dsar_spec_id}")
 except Exception as e:
-    logger.error(f"Error adding workflow spec: {e}")
+    logger.error(f"Error adding workflow spec: {e}", exc_info=True)
     # Decide how to handle this error - maybe exit or log critical failure
 # --- End SpiffWorkflow Engine Setup ---
 
@@ -201,16 +209,25 @@ app.register_blueprint(user_bp)
 app.register_blueprint(website_account_bp)
 app.register_blueprint(health_bp)
 app.register_blueprint(workflow_bp)
+logger.info("Registered Flask blueprints.")
 
 # Define the root route
 @app.route('/')
 def hello():
+    logger.debug("Root route '/' accessed.") # Use debug for frequent access logs
     return jsonify({'message': 'Hello from Flask!'})
 
 # Run the app if the script is executed directly
 if __name__ == '__main__':
     # Use environment variable for debug flag
     is_debug = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
+    host = os.environ.get('HOST', '0.0.0.0') # Use 0.0.0.0 to be accessible externally
+    port = int(os.environ.get('PORT', 5000))
+
+    log_level = logging.DEBUG if is_debug else logging.INFO
+    logging.getLogger().setLevel(log_level) # Adjust root logger level based on debug flag
+    logger.info(f"Starting Flask app on {host}:{port} with debug={is_debug}")
+
     # Use 0.0.0.0 to be accessible externally (e.g., in Docker)
-    app.run(debug=is_debug, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    app.run(debug=is_debug, host=host, port=port)
 
